@@ -1,139 +1,51 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Utilizator, GrupUtilizatori, ModulAcces } from '../types'
+import { supabase } from '../lib/supabase'
 
-const STORAGE_USERS = 'ortho-utilizatori'
-const STORAGE_GROUPS = 'ortho-grupuri'
 const STORAGE_SESSION = 'ortho-session'
 
-function loadUsers(): Utilizator[] {
-    const data = localStorage.getItem(STORAGE_USERS)
-    return data ? JSON.parse(data) : []
+function mapUser(row: any): Utilizator {
+    return {
+        id: row.id,
+        username: row.username,
+        parola: row.parola,
+        nume: row.nume,
+        prenume: row.prenume,
+        email: row.email || '',
+        grupId: row.grup_id,
+        activ: row.activ,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }
 }
 
-function loadGroups(): GrupUtilizatori[] {
-    const data = localStorage.getItem(STORAGE_GROUPS)
-    return data ? JSON.parse(data) : []
+function mapGroup(row: any): GrupUtilizatori {
+    return {
+        id: row.id,
+        denumire: row.denumire,
+        descriere: row.descriere || '',
+        moduleAcces: (row.module_acces || []) as ModulAcces[],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }
 }
-
-function saveUsers(items: Utilizator[]) {
-    localStorage.setItem(STORAGE_USERS, JSON.stringify(items))
-}
-
-function saveGroups(items: GrupUtilizatori[]) {
-    localStorage.setItem(STORAGE_GROUPS, JSON.stringify(items))
-}
-
-// ====== Seed Data ======
-const ADMIN_GROUP_ID = 'grup-admin'
-const MANAGEMENT_GROUP_ID = 'grup-management'
-const PRODUCTIE_GROUP_ID = 'grup-productie'
-const VANZARI_GROUP_ID = 'grup-vanzari'
-
-const DEFAULT_GROUPS: GrupUtilizatori[] = [
-    {
-        id: ADMIN_GROUP_ID,
-        denumire: 'Administratori',
-        descriere: 'Acces complet la toate modulele aplicației, inclusiv administrare',
-        moduleAcces: ['dashboard', 'comenzi', 'facturi', 'clienti', 'angajati', 'produse', 'materii-prime', 'admin'],
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: MANAGEMENT_GROUP_ID,
-        denumire: 'Management',
-        descriere: 'Acces la comenzi, facturi, clienți, angajați și rapoarte',
-        moduleAcces: ['dashboard', 'comenzi', 'facturi', 'clienti', 'angajati'],
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: PRODUCTIE_GROUP_ID,
-        denumire: 'Producție',
-        descriere: 'Acces la produse, materii prime și comenzi',
-        moduleAcces: ['dashboard', 'comenzi', 'produse', 'materii-prime'],
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: VANZARI_GROUP_ID,
-        denumire: 'Vânzări',
-        descriere: 'Acces la comenzi, facturi și clienți',
-        moduleAcces: ['dashboard', 'comenzi', 'facturi', 'clienti'],
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-]
-
-const DEFAULT_USERS: Utilizator[] = [
-    {
-        id: 'user-admin',
-        username: 'admin',
-        parola: '1234',
-        nume: 'Administrator',
-        prenume: 'System',
-        email: 'admin@ortho.ro',
-        grupId: ADMIN_GROUP_ID,
-        activ: true,
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: 'user-maria',
-        username: 'maria.ionescu',
-        parola: '1234',
-        nume: 'Ionescu',
-        prenume: 'Maria',
-        email: 'maria.ionescu@ortho.ro',
-        grupId: MANAGEMENT_GROUP_ID,
-        activ: true,
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: 'user-andrei',
-        username: 'andrei.pop',
-        parola: '1234',
-        nume: 'Pop',
-        prenume: 'Andrei',
-        email: 'andrei.pop@ortho.ro',
-        grupId: PRODUCTIE_GROUP_ID,
-        activ: true,
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-        id: 'user-elena',
-        username: 'elena.vasile',
-        parola: '1234',
-        nume: 'Vasile',
-        prenume: 'Elena',
-        email: 'elena.vasile@ortho.ro',
-        grupId: VANZARI_GROUP_ID,
-        activ: true,
-        createdAt: '2025-01-01T00:00:00.000Z',
-        updatedAt: '2025-01-01T00:00:00.000Z',
-    },
-]
 
 export const useAuthStore = defineStore('auth', () => {
-    // Initialize with seed data if empty
-    if (loadGroups().length === 0) {
-        saveGroups(DEFAULT_GROUPS)
-    }
-    if (loadUsers().length === 0) {
-        saveUsers(DEFAULT_USERS)
-    }
+    const users = ref<Utilizator[]>([])
+    const groups = ref<GrupUtilizatori[]>([])
+    const loaded = ref(false)
 
-    const users = ref<Utilizator[]>(loadUsers())
-    const groups = ref<GrupUtilizatori[]>(loadGroups())
-
-    // Session
+    // Session from localStorage (stays local for session persistence)
     const savedSession = localStorage.getItem(STORAGE_SESSION)
     const currentUser = ref<Utilizator | null>(savedSession ? JSON.parse(savedSession) : null)
 
     const isLoggedIn = computed(() => !!currentUser.value)
-    const isAdmin = computed(() => currentUser.value?.grupId === ADMIN_GROUP_ID)
+    const isAdmin = computed(() => {
+        if (!currentUser.value) return false
+        const group = groups.value.find(g => g.id === currentUser.value!.grupId)
+        return group?.moduleAcces.includes('admin') || false
+    })
 
     const currentGroup = computed(() => {
         if (!currentUser.value) return null
@@ -145,17 +57,55 @@ export const useAuthStore = defineStore('auth', () => {
         return currentGroup.value.moduleAcces
     })
 
+    async function fetchAll() {
+        const [usersRes, groupsRes] = await Promise.all([
+            supabase.from('utilizatori').select('*').order('username'),
+            supabase.from('grupuri').select('*').order('denumire'),
+        ])
+        if (usersRes.error) console.error('Eroare utilizatori:', usersRes.error)
+        if (groupsRes.error) console.error('Eroare grupuri:', groupsRes.error)
+
+        users.value = (usersRes.data || []).map(mapUser)
+        groups.value = (groupsRes.data || []).map(mapGroup)
+        loaded.value = true
+
+        // Refresh current user data from DB
+        if (currentUser.value) {
+            const freshUser = users.value.find(u => u.id === currentUser.value!.id)
+            if (freshUser) {
+                currentUser.value = freshUser
+                localStorage.setItem(STORAGE_SESSION, JSON.stringify(freshUser))
+            }
+        }
+    }
+
     // ====== Auth ======
-    function login(username: string, parola: string): { success: boolean; error?: string } {
-        const user = users.value.find(u => u.username === username && u.parola === parola)
-        if (!user) {
+    async function login(username: string, parola: string): Promise<{ success: boolean; error?: string }> {
+        const { data, error } = await supabase
+            .from('utilizatori')
+            .select('*')
+            .eq('username', username)
+            .eq('parola', parola)
+            .single()
+
+        if (error || !data) {
             return { success: false, error: 'Utilizator sau parolă incorectă!' }
         }
+
+        const user = mapUser(data)
         if (!user.activ) {
             return { success: false, error: 'Contul este dezactivat. Contactați administratorul.' }
         }
+
         currentUser.value = user
         localStorage.setItem(STORAGE_SESSION, JSON.stringify(user))
+
+        // Also fetch groups for permission checks
+        if (groups.value.length === 0) {
+            const { data: grpData } = await supabase.from('grupuri').select('*')
+            groups.value = (grpData || []).map(mapGroup)
+        }
+
         return { success: true }
     }
 
@@ -169,57 +119,87 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // ====== User CRUD ======
-    function addUser(user: Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>) {
-        const now = new Date().toISOString()
-        const newUser: Utilizator = {
-            ...user,
-            id: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now,
-        }
+    async function addUser(user: Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>) {
+        const { data, error } = await supabase
+            .from('utilizatori')
+            .insert({
+                username: user.username,
+                parola: user.parola,
+                nume: user.nume,
+                prenume: user.prenume,
+                email: user.email,
+                grup_id: user.grupId,
+                activ: user.activ,
+            })
+            .select()
+            .single()
+        if (error) { console.error('Eroare adăugare user:', error); return null }
+        const newUser = mapUser(data)
         users.value.push(newUser)
-        saveUsers(users.value)
         return newUser
     }
 
-    function updateUser(id: string, data: Partial<Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>>) {
+    async function updateUser(id: string, data: Partial<Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>>) {
+        const updateData: any = { updated_at: new Date().toISOString() }
+        if (data.username !== undefined) updateData.username = data.username
+        if (data.parola !== undefined) updateData.parola = data.parola
+        if (data.nume !== undefined) updateData.nume = data.nume
+        if (data.prenume !== undefined) updateData.prenume = data.prenume
+        if (data.email !== undefined) updateData.email = data.email
+        if (data.grupId !== undefined) updateData.grup_id = data.grupId
+        if (data.activ !== undefined) updateData.activ = data.activ
+
+        const { error } = await supabase.from('utilizatori').update(updateData).eq('id', id)
+        if (error) { console.error('Eroare actualizare user:', error); return }
+
         const index = users.value.findIndex(u => u.id === id)
         if (index !== -1) {
             users.value[index] = { ...users.value[index], ...data, updatedAt: new Date().toISOString() }
-            saveUsers(users.value)
         }
     }
 
-    function removeUser(id: string) {
+    async function removeUser(id: string) {
+        const { error } = await supabase.from('utilizatori').delete().eq('id', id)
+        if (error) { console.error('Eroare ștergere user:', error); return }
         users.value = users.value.filter(u => u.id !== id)
-        saveUsers(users.value)
     }
 
     // ====== Group CRUD ======
-    function addGroup(group: Omit<GrupUtilizatori, 'id' | 'createdAt' | 'updatedAt'>) {
-        const now = new Date().toISOString()
-        const newGroup: GrupUtilizatori = {
-            ...group,
-            id: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now,
-        }
+    async function addGroup(group: Omit<GrupUtilizatori, 'id' | 'createdAt' | 'updatedAt'>) {
+        const { data, error } = await supabase
+            .from('grupuri')
+            .insert({
+                denumire: group.denumire,
+                descriere: group.descriere,
+                module_acces: group.moduleAcces,
+            })
+            .select()
+            .single()
+        if (error) { console.error('Eroare adăugare grup:', error); return null }
+        const newGroup = mapGroup(data)
         groups.value.push(newGroup)
-        saveGroups(groups.value)
         return newGroup
     }
 
-    function updateGroup(id: string, data: Partial<Omit<GrupUtilizatori, 'id' | 'createdAt' | 'updatedAt'>>) {
+    async function updateGroup(id: string, data: Partial<Omit<GrupUtilizatori, 'id' | 'createdAt' | 'updatedAt'>>) {
+        const updateData: any = { updated_at: new Date().toISOString() }
+        if (data.denumire !== undefined) updateData.denumire = data.denumire
+        if (data.descriere !== undefined) updateData.descriere = data.descriere
+        if (data.moduleAcces !== undefined) updateData.module_acces = data.moduleAcces
+
+        const { error } = await supabase.from('grupuri').update(updateData).eq('id', id)
+        if (error) { console.error('Eroare actualizare grup:', error); return }
+
         const index = groups.value.findIndex(g => g.id === id)
         if (index !== -1) {
             groups.value[index] = { ...groups.value[index], ...data, updatedAt: new Date().toISOString() }
-            saveGroups(groups.value)
         }
     }
 
-    function removeGroup(id: string) {
+    async function removeGroup(id: string) {
+        const { error } = await supabase.from('grupuri').delete().eq('id', id)
+        if (error) { console.error('Eroare ștergere grup:', error); return }
         groups.value = groups.value.filter(g => g.id !== id)
-        saveGroups(groups.value)
     }
 
     function getGroupById(id: string): GrupUtilizatori | undefined {
@@ -231,23 +211,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     return {
-        users,
-        groups,
-        currentUser,
-        isLoggedIn,
-        isAdmin,
-        currentGroup,
-        allowedModules,
-        login,
-        logout,
-        hasAccess,
-        addUser,
-        updateUser,
-        removeUser,
-        addGroup,
-        updateGroup,
-        removeGroup,
-        getGroupById,
-        getUsersByGroup,
+        users, groups, loaded, currentUser, isLoggedIn, isAdmin,
+        currentGroup, allowedModules,
+        fetchAll, login, logout, hasAccess,
+        addUser, updateUser, removeUser,
+        addGroup, updateGroup, removeGroup,
+        getGroupById, getUsersByGroup,
     }
 })

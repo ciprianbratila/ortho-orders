@@ -2,31 +2,44 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Produs, ComponentaProdus } from '../types'
 import { useMateriiPrimeStore } from './materiiPrime'
+import { supabase } from '../lib/supabase'
 
-const STORAGE_KEY = 'ortho-produse'
-
-function loadFromStorage(): Produs[] {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-}
-
-function saveToStorage(items: Produs[]) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+function mapRow(row: any): Produs {
+    return {
+        id: row.id,
+        denumire: row.denumire,
+        descriere: row.descriere || '',
+        produsParinteId: row.produs_parinte_id || undefined,
+        componente: (row.produse_componente || []).map((c: any) => ({
+            materiePrimaId: c.materie_prima_id,
+            cantitate: Number(c.cantitate),
+        })),
+        pretManopera: Number(row.pret_manopera),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }
 }
 
 export const useProduseStore = defineStore('produse', () => {
-    const items = ref<Produs[]>(loadFromStorage())
+    const items = ref<Produs[]>([])
+    const loaded = ref(false)
 
     const totalItems = computed(() => items.value.length)
+
+    async function fetchAll() {
+        const { data, error } = await supabase
+            .from('produse')
+            .select('*, produse_componente(*)')
+            .order('denumire')
+        if (error) { console.error('Eroare produse:', error); return }
+        items.value = (data || []).map(mapRow)
+        loaded.value = true
+    }
 
     function getById(id: string): Produs | undefined {
         return items.value.find(item => item.id === id)
     }
 
-    /**
-     * Returnează toate componentele unui produs, incluzând recursiv
-     * componentele produsului părinte (dacă există).
-     */
     function getToateComponentele(produs: Produs): ComponentaProdus[] {
         const componente: ComponentaProdus[] = [...produs.componente]
         if (produs.produsParinteId) {
@@ -46,10 +59,6 @@ export const useProduseStore = defineStore('produse', () => {
         return componente
     }
 
-    /**
-     * Calculează prețul total al unui produs, incluzând costul
-     * produsului părinte (recursive).
-     */
     function calculeazaPretProdus(produs: Produs): number {
         const materiiStore = useMateriiPrimeStore()
         const toateComp = getToateComponentele(produs)
@@ -60,7 +69,6 @@ export const useProduseStore = defineStore('produse', () => {
                 pretComponente += materie.pret * comp.cantitate
             }
         }
-        // Manopera proprie + manopera produsului părinte (recursive)
         let pretManopera = produs.pretManopera
         if (produs.produsParinteId) {
             const parinte = getById(produs.produsParinteId)
@@ -82,9 +90,6 @@ export const useProduseStore = defineStore('produse', () => {
         return total
     }
 
-    /**
-     * Returnează prețul doar al componentelor proprii (fără părinte).
-     */
     function calculeazaPretComponenteProprii(componente: ComponentaProdus[]): number {
         const materiiStore = useMateriiPrimeStore()
         let total = 0
@@ -97,13 +102,8 @@ export const useProduseStore = defineStore('produse', () => {
         return total
     }
 
-    /**
-     * Verifică dacă există un produs duplicat (aceleași materiale și cantități).
-     * Returnează denumirea produsului duplicat sau null.
-     */
     function verificaDuplicat(componente: ComponentaProdus[], produsParinteId?: string, excludeId?: string): string | null {
         const sorted = normalizareComponente(componente, produsParinteId)
-
         for (const produs of items.value) {
             if (excludeId && produs.id === excludeId) continue
             const existente = normalizareComponente(produs.componente, produs.produsParinteId)
@@ -117,9 +117,6 @@ export const useProduseStore = defineStore('produse', () => {
         return null
     }
 
-    /**
-     * Normalizează componentele (include părinte, sortează, merge duplicatele).
-     */
     function normalizareComponente(componente: ComponentaProdus[], produsParinteId?: string): ComponentaProdus[] {
         const all: ComponentaProdus[] = [...componente.map(c => ({ ...c }))]
         if (produsParinteId) {
@@ -136,7 +133,6 @@ export const useProduseStore = defineStore('produse', () => {
                 }
             }
         }
-        // Merge duplicates within own components
         const merged: Map<string, number> = new Map()
         for (const c of all) {
             merged.set(c.materiePrimaId, (merged.get(c.materiePrimaId) || 0) + c.cantitate)
@@ -146,45 +142,81 @@ export const useProduseStore = defineStore('produse', () => {
             .sort((a, b) => a.materiePrimaId.localeCompare(b.materiePrimaId))
     }
 
-    /**
-     * Returnează produsele derivate dintr-un produs dat.
-     */
     function getProduseDerivate(produsId: string): Produs[] {
         return items.value.filter(p => p.produsParinteId === produsId)
     }
 
-    function add(item: Omit<Produs, 'id' | 'createdAt' | 'updatedAt'>) {
-        const now = new Date().toISOString()
+    async function add(item: Omit<Produs, 'id' | 'createdAt' | 'updatedAt'>) {
+        const { data, error } = await supabase
+            .from('produse')
+            .insert({
+                denumire: item.denumire,
+                descriere: item.descriere,
+                produs_parinte_id: item.produsParinteId || null,
+                pret_manopera: item.pretManopera,
+            })
+            .select()
+            .single()
+        if (error) { console.error('Eroare adăugare produs:', error); return null }
+
+        // Insert components
+        if (item.componente.length > 0) {
+            const comps = item.componente.map(c => ({
+                produs_id: data.id,
+                materie_prima_id: c.materiePrimaId,
+                cantitate: c.cantitate,
+            }))
+            await supabase.from('produse_componente').insert(comps)
+        }
+
         const newItem: Produs = {
             ...item,
-            id: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now
+            id: data.id,
+            createdAt: data.created_at,
+            updatedAt: data.updated_at,
         }
         items.value.push(newItem)
-        saveToStorage(items.value)
         return newItem
     }
 
-    function update(id: string, data: Partial<Omit<Produs, 'id' | 'createdAt' | 'updatedAt'>>) {
+    async function update(id: string, data: Partial<Omit<Produs, 'id' | 'createdAt' | 'updatedAt'>>) {
+        const updateData: any = { updated_at: new Date().toISOString() }
+        if (data.denumire !== undefined) updateData.denumire = data.denumire
+        if (data.descriere !== undefined) updateData.descriere = data.descriere
+        if (data.produsParinteId !== undefined) updateData.produs_parinte_id = data.produsParinteId || null
+        if (data.pretManopera !== undefined) updateData.pret_manopera = data.pretManopera
+
+        const { error } = await supabase.from('produse').update(updateData).eq('id', id)
+        if (error) { console.error('Eroare actualizare produs:', error); return }
+
+        // Update components if provided
+        if (data.componente !== undefined) {
+            await supabase.from('produse_componente').delete().eq('produs_id', id)
+            if (data.componente.length > 0) {
+                const comps = data.componente.map(c => ({
+                    produs_id: id,
+                    materie_prima_id: c.materiePrimaId,
+                    cantitate: c.cantitate,
+                }))
+                await supabase.from('produse_componente').insert(comps)
+            }
+        }
+
         const index = items.value.findIndex(item => item.id === id)
         if (index !== -1) {
-            items.value[index] = {
-                ...items.value[index],
-                ...data,
-                updatedAt: new Date().toISOString()
-            }
-            saveToStorage(items.value)
+            items.value[index] = { ...items.value[index], ...data, updatedAt: new Date().toISOString() }
         }
     }
 
-    function remove(id: string) {
+    async function remove(id: string) {
+        const { error } = await supabase.from('produse').delete().eq('id', id)
+        if (error) { console.error('Eroare ștergere produs:', error); return }
         items.value = items.value.filter(item => item.id !== id)
-        saveToStorage(items.value)
     }
 
     return {
         items,
+        loaded,
         totalItems,
         getById,
         getToateComponentele,
@@ -193,6 +225,7 @@ export const useProduseStore = defineStore('produse', () => {
         calculeazaManoperaTotala,
         verificaDuplicat,
         getProduseDerivate,
+        fetchAll,
         add,
         update,
         remove

@@ -2,6 +2,12 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
+import { useMateriiPrimeStore } from '../stores/materiiPrime'
+import { useClientiStore } from '../stores/clienti'
+import { useAngajatiStore } from '../stores/angajati'
+import { useProduseStore } from '../stores/produse'
+import { useComenziStore } from '../stores/comenzi'
+import { useFacturiStore } from '../stores/facturi'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -23,13 +29,22 @@ async function handleLogin() {
     return
   }
   loading.value = true
-  // Simulate async
-  await new Promise(resolve => setTimeout(resolve, 600))
-  const result = auth.login(username.value.trim(), password.value)
-  loading.value = false
+  const result = await auth.login(username.value.trim(), password.value)
   if (result.success) {
+    // Fetch all data in parallel after login
+    await Promise.all([
+      auth.fetchAll(),
+      useMateriiPrimeStore().fetchAll(),
+      useClientiStore().fetchAll(),
+      useAngajatiStore().fetchAll(),
+      useProduseStore().fetchAll(),
+      useComenziStore().fetchAll(),
+      useFacturiStore().fetchAll(),
+    ])
+    loading.value = false
     router.push('/')
   } else {
+    loading.value = false
     errorMsg.value = result.error || 'Eroare la autentificare'
   }
 }
