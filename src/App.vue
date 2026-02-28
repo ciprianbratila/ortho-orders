@@ -4,10 +4,8 @@ import { useRoute } from 'vue-router'
 import SidebarNav from './components/SidebarNav.vue'
 import TopBar from './components/TopBar.vue'
 import ToastNotifications from './components/ToastNotifications.vue'
-import { useAuthStore } from './stores/auth'
 
 const route = useRoute()
-const auth = useAuthStore()
 
 const isLoginPage = computed(() => route.name === 'login')
 </script>

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
 import { useToastStore } from '../stores/toast'
 
 const toastStore = useToastStore()
