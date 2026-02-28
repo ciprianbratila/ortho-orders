@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useProduseStore } from '../stores/produse'
 import { useMateriiPrimeStore } from '../stores/materiiPrime'
 import { useToastStore } from '../stores/toast'
-import type { Produs, ComponentaProdus } from '../types'
+import type { Produs, ComponentaProdus, TipProdus } from '../types'
 
 const store = useProduseStore()
 const materiiStore = useMateriiPrimeStore()
@@ -16,8 +16,10 @@ const editingId = ref<string | null>(null)
 const deleteTargetId = ref<string | null>(null)
 const showCopyDialog = ref(false)
 const copySourceId = ref('')
+const activeTab = ref<'produse' | 'servicii'>('produse')
 
 const form = ref({
+  tip: 'produs' as TipProdus,
   denumire: '',
   descriere: '',
   produsParinteId: '' as string,
@@ -26,16 +28,17 @@ const form = ref({
 })
 
 const filteredItems = computed(() => {
-  if (!searchQuery.value) return store.items
+  const byType = activeTab.value === 'produse' ? store.produse : store.servicii
+  if (!searchQuery.value) return byType
   const q = searchQuery.value.toLowerCase()
-  return store.items.filter(item =>
+  return byType.filter(item =>
     item.denumire.toLowerCase().includes(q) || item.descriere.toLowerCase().includes(q)
   )
 })
 
 // Produse fără părinte = produse de bază
-const produseBaza = computed(() => store.items.filter(p => !p.produsParinteId))
-const produseDerivate = computed(() => store.items.filter(p => p.produsParinteId))
+const produseBaza = computed(() => store.produse.filter(p => !p.produsParinteId))
+const produseDerivate = computed(() => store.produse.filter(p => p.produsParinteId))
 
 function getMaterieName(id: string): string {
   const m = materiiStore.getById(id)
@@ -55,7 +58,7 @@ function getParinteName(id?: string): string {
 
 // Exclude produsul curent și derivatele sale din lista de posibili părinți
 function getAvailableParents(): Produs[] {
-  return store.items.filter(p => {
+  return store.produse.filter(p => {
     if (editingId.value && p.id === editingId.value) return false
     // nu permite ca un descendent să fie părinte (evită cicluri)
     if (editingId.value && isDescendant(p.id, editingId.value)) return false
@@ -72,13 +75,21 @@ function isDescendant(produsId: string, ancestorId: string): boolean {
 
 function openAdd() {
   editingId.value = null
-  form.value = { denumire: '', descriere: '', produsParinteId: '', componente: [], pretManopera: 0 }
+  form.value = {
+    tip: activeTab.value === 'servicii' ? 'serviciu' : 'produs',
+    denumire: '',
+    descriere: '',
+    produsParinteId: '',
+    componente: [],
+    pretManopera: 0,
+  }
   showModal.value = true
 }
 
 function openEdit(item: Produs) {
   editingId.value = item.id
   form.value = {
+    tip: item.tip,
     denumire: item.denumire,
     descriere: item.descriere,
     produsParinteId: item.produsParinteId || '',
@@ -105,11 +116,11 @@ function removeComponent(index: number) {
 
 // Copy materials from another product
 function openCopyDialog() {
-  if (store.items.length === 0) {
+  if (store.produse.length === 0) {
     toast.warning('Nu există produse din care să copiezi!')
     return
   }
-  copySourceId.value = store.items[0].id
+  copySourceId.value = store.produse[0].id
   showCopyDialog.value = true
 }
 
@@ -135,8 +146,19 @@ function calcPretParinte(): number {
 }
 
 function calcPretTotal(): number {
+  if (form.value.tip === 'serviciu') {
+    return form.value.pretManopera
+  }
   return calcPretComponenteProprii() + form.value.pretManopera + calcPretParinte()
 }
+
+const isServiceForm = computed(() => form.value.tip === 'serviciu')
+const modalTitle = computed(() => {
+  if (editingId.value) {
+    return isServiceForm.value ? 'Editează Serviciu' : 'Editează Produs'
+  }
+  return isServiceForm.value ? 'Adaugă Serviciu' : 'Adaugă Produs'
+})
 
 function save() {
   if (!form.value.denumire.trim()) {
@@ -144,37 +166,43 @@ function save() {
     return
   }
 
-  // Validare duplicat
-  const duplicat = store.verificaDuplicat(
-    form.value.componente,
-    form.value.produsParinteId || undefined,
-    editingId.value || undefined
-  )
-  if (duplicat) {
-    toast.error(`Produs duplicat! Combinația de materiale este identică cu "${duplicat}".`)
-    return
+  // Validare duplicat doar pentru produse
+  if (form.value.tip === 'produs') {
+    const duplicat = store.verificaDuplicat(
+      form.value.componente,
+      form.value.produsParinteId || undefined,
+      editingId.value || undefined
+    )
+    if (duplicat) {
+      toast.error(`Produs duplicat! Combinația de materiale este identică cu "${duplicat}".`)
+      return
+    }
   }
 
   const payload: any = {
     ...form.value,
-    produsParinteId: form.value.produsParinteId || undefined,
+    produsParinteId: form.value.tip === 'serviciu' ? undefined : (form.value.produsParinteId || undefined),
+    componente: form.value.tip === 'serviciu' ? [] : form.value.componente,
   }
 
   if (editingId.value) {
     store.update(editingId.value, payload)
-    toast.success('Produs actualizat cu succes!')
+    toast.success(form.value.tip === 'serviciu' ? 'Serviciu actualizat cu succes!' : 'Produs actualizat cu succes!')
   } else {
     store.add(payload)
-    toast.success('Produs adăugat cu succes!')
+    toast.success(form.value.tip === 'serviciu' ? 'Serviciu adăugat cu succes!' : 'Produs adăugat cu succes!')
   }
   showModal.value = false
 }
 
 function confirmDelete(id: string) {
-  const derivate = store.getProduseDerivate(id)
-  if (derivate.length > 0) {
-    toast.error(`Nu poți șterge! ${derivate.length} produs(e) derivat(e) depind de acest produs: ${derivate.map(d => d.denumire).join(', ')}`)
-    return
+  const item = store.getById(id)
+  if (item && item.tip === 'produs') {
+    const derivate = store.getProduseDerivate(id)
+    if (derivate.length > 0) {
+      toast.error(`Nu poți șterge! ${derivate.length} produs(e) derivat(e) depind de acest produs: ${derivate.map(d => d.denumire).join(', ')}`)
+      return
+    }
   }
   deleteTargetId.value = id
   showDeleteConfirm.value = true
@@ -182,8 +210,9 @@ function confirmDelete(id: string) {
 
 function executeDelete() {
   if (deleteTargetId.value) {
+    const item = store.getById(deleteTargetId.value)
     store.remove(deleteTargetId.value)
-    toast.success('Produs șters!')
+    toast.success(item?.tip === 'serviciu' ? 'Serviciu șters!' : 'Produs șters!')
   }
   showDeleteConfirm.value = false
   deleteTargetId.value = null
@@ -204,7 +233,7 @@ function formatCurrency(val: number): string {
         </div>
         <div class="stat-info">
           <h3>{{ store.totalItems }}</h3>
-          <p>Total Produse</p>
+          <p>Total Catalog</p>
         </div>
       </div>
       <div class="stat-card">
@@ -225,141 +254,207 @@ function formatCurrency(val: number): string {
           <p>Produse Derivate</p>
         </div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">
+          <span class="material-icons-outlined">build</span>
+        </div>
+        <div class="stat-info">
+          <h3>{{ store.servicii.length }}</h3>
+          <p>Servicii</p>
+        </div>
+      </div>
     </div>
 
-    <!-- Actions Bar -->
+    <!-- Tabs + Actions Bar -->
     <div class="card" style="margin-bottom: 20px; padding: 16px 20px;">
       <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div class="search-box">
-          <span class="material-icons-outlined">search</span>
-          <input v-model="searchQuery" type="text" placeholder="Caută produs..." />
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <!-- Tab Buttons -->
+          <div style="display: flex; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color);">
+            <button
+              :class="['btn', activeTab === 'produse' ? 'btn-primary' : 'btn-ghost']"
+              style="border-radius: 8px 0 0 8px; border: none; padding: 8px 16px;"
+              @click="activeTab = 'produse'"
+            >
+              <span class="material-icons-outlined" style="font-size: 16px;">category</span>
+              Produse ({{ store.produse.length }})
+            </button>
+            <button
+              :class="['btn', activeTab === 'servicii' ? 'btn-primary' : 'btn-ghost']"
+              style="border-radius: 0 8px 8px 0; border: none; padding: 8px 16px;"
+              @click="activeTab = 'servicii'"
+            >
+              <span class="material-icons-outlined" style="font-size: 16px;">build</span>
+              Servicii ({{ store.servicii.length }})
+            </button>
+          </div>
+          <div class="search-box" style="margin-left: 12px;">
+            <span class="material-icons-outlined">search</span>
+            <input v-model="searchQuery" type="text" :placeholder="activeTab === 'produse' ? 'Caută produs...' : 'Caută serviciu...'" />
+          </div>
         </div>
+        <button class="btn btn-primary" @click="openAdd">
+          <span class="material-icons-outlined">add</span>
+          {{ activeTab === 'produse' ? 'Adaugă Produs' : 'Adaugă Serviciu' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== PRODUSE TAB ==================== -->
+    <template v-if="activeTab === 'produse'">
+      <!-- Product Cards Grid -->
+      <div v-if="filteredItems.length > 0" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px;">
+        <div v-for="item in filteredItems" :key="item.id" class="card" style="padding: 20px; position: relative;">
+
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-right: 0;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">{{ item.denumire }}</div>
+              <div v-if="item.produsParinteId" style="margin-top: 6px;">
+                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
+                  <span class="material-icons-outlined" style="font-size: 12px;">account_tree</span>
+                  Derivat din {{ getParinteName(item.produsParinteId) }}
+                </span>
+              </div>
+              <div v-if="item.descriere" style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">{{ item.descriere }}</div>
+            </div>
+            <div class="table-actions">
+              <button class="btn btn-ghost btn-icon btn-sm" @click="openEdit(item)" title="Editează">
+                <span class="material-icons-outlined">edit</span>
+              </button>
+              <button class="btn btn-ghost btn-icon btn-sm" @click="confirmDelete(item.id)" title="Șterge" style="color: var(--error);">
+                <span class="material-icons-outlined">delete</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Parent Componente (if nested) -->
+          <div v-if="item.produsParinteId" style="margin-bottom: 8px;">
+            <div style="font-size: 0.72rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
+              <span class="material-icons-outlined" style="font-size: 13px;">inventory_2</span>
+              Componente moștenite ({{ getParinteName(item.produsParinteId) }})
+            </div>
+            <div v-for="(comp, idx) in (store.getById(item.produsParinteId)?.componente || [])" :key="'p'+idx" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 6px; background: rgba(139, 92, 246, 0.06); border: 1px solid rgba(139, 92, 246, 0.1); margin-bottom: 3px; font-size: 0.82rem;">
+              <span style="color: #c4b5fd;">{{ getMaterieName(comp.materiePrimaId) }}</span>
+              <span style="color: rgba(196, 181, 253, 0.6);">{{ comp.cantitate }} {{ getMaterieUnit(comp.materiePrimaId) }}</span>
+            </div>
+          </div>
+
+          <!-- Own Componente -->
+          <div v-if="item.componente.length > 0" style="margin-bottom: 12px;">
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">
+              {{ item.produsParinteId ? 'Componente adiționale' : 'Componente' }}
+            </div>
+            <div v-for="(comp, idx) in item.componente" :key="idx" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 6px; background: var(--bg-tertiary); margin-bottom: 3px; font-size: 0.82rem;">
+              <span>{{ getMaterieName(comp.materiePrimaId) }}</span>
+              <span style="color: var(--text-muted);">{{ comp.cantitate }} {{ getMaterieUnit(comp.materiePrimaId) }}</span>
+            </div>
+          </div>
+
+          <!-- Preturi -->
+          <div style="padding-top: 12px; border-top: 1px solid var(--border-color);">
+            <div v-if="item.produsParinteId" style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
+              <span style="color: #a78bfa;">Cost bază ({{ getParinteName(item.produsParinteId) }})</span>
+              <span style="color: #a78bfa;">{{ formatCurrency(store.calculeazaPretProdus(store.getById(item.produsParinteId)!)) }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
+              <span style="color: var(--text-muted);">{{ item.produsParinteId ? 'Cost adițional' : 'Cost materiale' }}</span>
+              <span>{{ formatCurrency(store.calculeazaPretComponenteProprii(item.componente)) }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.82rem;">
+              <span style="color: var(--text-muted);">Manoperă proprie</span>
+              <span>{{ formatCurrency(item.pretManopera) }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+              <span style="font-size: 0.82rem; color: var(--text-muted);">Preț Total</span>
+              <span style="font-size: 1.1rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(store.calculeazaPretProdus(item)) }}</span>
+            </div>
+          </div>
+
+          <!-- Derivate count -->
+          <div v-if="store.getProduseDerivate(item.id).length > 0" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color);">
+            <span style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+              <span class="material-icons-outlined" style="font-size: 14px;">account_tree</span>
+              {{ store.getProduseDerivate(item.id).length }} produs(e) derivat(e)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State Produse -->
+      <div v-else class="empty-state card">
+        <span class="material-icons-outlined">category</span>
+        <h3>Niciun produs în catalog</h3>
+        <p>Adaugă produse și configurează componentele lor din materii prime.</p>
         <button class="btn btn-primary" @click="openAdd">
           <span class="material-icons-outlined">add</span>
           Adaugă Produs
         </button>
       </div>
-    </div>
+    </template>
 
-    <!-- Product Cards Grid -->
-    <div v-if="filteredItems.length > 0" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px;">
-      <div v-for="item in filteredItems" :key="item.id" class="card" style="padding: 20px; position: relative;">
-        <!-- Derivat Badge -->
-        <div v-if="item.produsParinteId" style="position: absolute; top: 12px; right: 12px;">
-          <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
-            <span class="material-icons-outlined" style="font-size: 12px;">account_tree</span>
-            Derivat din {{ getParinteName(item.produsParinteId) }}
-          </span>
-        </div>
+    <!-- ==================== SERVICII TAB ==================== -->
+    <template v-if="activeTab === 'servicii'">
+      <div v-if="filteredItems.length > 0" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px;">
+        <div v-for="item in filteredItems" :key="item.id" class="card" style="padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-icons-outlined" style="font-size: 20px; color: #f59e0b;">build</span>
+                <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">{{ item.denumire }}</div>
+              </div>
+              <div v-if="item.descriere" style="font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; margin-left: 28px;">{{ item.descriere }}</div>
+            </div>
+            <div class="table-actions">
+              <button class="btn btn-ghost btn-icon btn-sm" @click="openEdit(item)" title="Editează">
+                <span class="material-icons-outlined">edit</span>
+              </button>
+              <button class="btn btn-ghost btn-icon btn-sm" @click="confirmDelete(item.id)" title="Șterge" style="color: var(--error);">
+                <span class="material-icons-outlined">delete</span>
+              </button>
+            </div>
+          </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-right: 0;">
-          <div style="max-width: 75%;">
-            <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">{{ item.denumire }}</div>
-            <div v-if="item.descriere" style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">{{ item.descriere }}</div>
+          <!-- Preț serviciu -->
+          <div style="padding-top: 12px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.82rem; color: var(--text-muted);">Preț Serviciu</span>
+            <span style="font-size: 1.1rem; font-weight: 700; color: #f59e0b;">{{ formatCurrency(item.pretManopera) }}</span>
           </div>
-          <div class="table-actions" v-if="!item.produsParinteId">
-            <button class="btn btn-ghost btn-icon btn-sm" @click="openEdit(item)" title="Editează">
-              <span class="material-icons-outlined">edit</span>
-            </button>
-            <button class="btn btn-ghost btn-icon btn-sm" @click="confirmDelete(item.id)" title="Șterge" style="color: var(--error);">
-              <span class="material-icons-outlined">delete</span>
-            </button>
-          </div>
-          <div class="table-actions" v-else>
-            <button class="btn btn-ghost btn-icon btn-sm" @click="openEdit(item)" title="Editează">
-              <span class="material-icons-outlined">edit</span>
-            </button>
-            <button class="btn btn-ghost btn-icon btn-sm" @click="confirmDelete(item.id)" title="Șterge" style="color: var(--error);">
-              <span class="material-icons-outlined">delete</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Parent Componente (if nested) -->
-        <div v-if="item.produsParinteId" style="margin-bottom: 8px;">
-          <div style="font-size: 0.72rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-            <span class="material-icons-outlined" style="font-size: 13px;">inventory_2</span>
-            Componente moștenite ({{ getParinteName(item.produsParinteId) }})
-          </div>
-          <div v-for="(comp, idx) in (store.getById(item.produsParinteId)?.componente || [])" :key="'p'+idx" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 6px; background: rgba(139, 92, 246, 0.06); border: 1px solid rgba(139, 92, 246, 0.1); margin-bottom: 3px; font-size: 0.82rem;">
-            <span style="color: #c4b5fd;">{{ getMaterieName(comp.materiePrimaId) }}</span>
-            <span style="color: rgba(196, 181, 253, 0.6);">{{ comp.cantitate }} {{ getMaterieUnit(comp.materiePrimaId) }}</span>
-          </div>
-        </div>
-
-        <!-- Own Componente -->
-        <div v-if="item.componente.length > 0" style="margin-bottom: 12px;">
-          <div style="font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">
-            {{ item.produsParinteId ? 'Componente adiționale' : 'Componente' }}
-          </div>
-          <div v-for="(comp, idx) in item.componente" :key="idx" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 6px; background: var(--bg-tertiary); margin-bottom: 3px; font-size: 0.82rem;">
-            <span>{{ getMaterieName(comp.materiePrimaId) }}</span>
-            <span style="color: var(--text-muted);">{{ comp.cantitate }} {{ getMaterieUnit(comp.materiePrimaId) }}</span>
-          </div>
-        </div>
-
-        <!-- Preturi -->
-        <div style="padding-top: 12px; border-top: 1px solid var(--border-color);">
-          <div v-if="item.produsParinteId" style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
-            <span style="color: #a78bfa;">Cost bază ({{ getParinteName(item.produsParinteId) }})</span>
-            <span style="color: #a78bfa;">{{ formatCurrency(store.calculeazaPretProdus(store.getById(item.produsParinteId)!)) }}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
-            <span style="color: var(--text-muted);">{{ item.produsParinteId ? 'Cost adițional' : 'Cost materiale' }}</span>
-            <span>{{ formatCurrency(store.calculeazaPretComponenteProprii(item.componente)) }}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.82rem;">
-            <span style="color: var(--text-muted);">Manoperă proprie</span>
-            <span>{{ formatCurrency(item.pretManopera) }}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-            <span style="font-size: 0.82rem; color: var(--text-muted);">Preț Total</span>
-            <span style="font-size: 1.1rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(store.calculeazaPretProdus(item)) }}</span>
-          </div>
-        </div>
-
-        <!-- Derivate count -->
-        <div v-if="store.getProduseDerivate(item.id).length > 0" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color);">
-          <span style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
-            <span class="material-icons-outlined" style="font-size: 14px;">account_tree</span>
-            {{ store.getProduseDerivate(item.id).length }} produs(e) derivat(e)
-          </span>
         </div>
       </div>
-    </div>
 
-    <!-- Empty State -->
-    <div v-else class="empty-state card">
-      <span class="material-icons-outlined">category</span>
-      <h3>Niciun produs în catalog</h3>
-      <p>Adaugă produse și configurează componentele lor din materii prime.</p>
-      <button class="btn btn-primary" @click="openAdd">
-        <span class="material-icons-outlined">add</span>
-        Adaugă Produs
-      </button>
-    </div>
+      <!-- Empty State Servicii -->
+      <div v-else class="empty-state card">
+        <span class="material-icons-outlined">build</span>
+        <h3>Niciun serviciu definit</h3>
+        <p>Adaugă servicii de customizare precum vopsire, personalizare, etc.</p>
+        <button class="btn btn-primary" @click="openAdd">
+          <span class="material-icons-outlined">add</span>
+          Adaugă Serviciu
+        </button>
+      </div>
+    </template>
 
     <!-- ==================== Add/Edit Modal ==================== -->
     <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
       <div class="modal modal-lg">
         <div class="modal-header">
-          <h3>{{ editingId ? 'Editează Produs' : 'Adaugă Produs' }}</h3>
+          <h3>{{ modalTitle }}</h3>
           <button class="btn btn-ghost btn-icon" @click="showModal = false">
             <span class="material-icons-outlined">close</span>
           </button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label class="form-label">Denumire Produs *</label>
-            <input v-model="form.denumire" class="form-input" type="text" placeholder="ex: Pantof ortopedic standard" />
+            <label class="form-label">{{ isServiceForm ? 'Denumire Serviciu *' : 'Denumire Produs *' }}</label>
+            <input v-model="form.denumire" class="form-input" type="text" :placeholder="isServiceForm ? 'ex: Vopsire personalizată' : 'ex: Pantof ortopedic standard'" />
           </div>
           <div class="form-group">
             <label class="form-label">Descriere</label>
             <textarea v-model="form.descriere" class="form-textarea" placeholder="Descriere opțională..."></textarea>
           </div>
 
-          <!-- Produs Părinte (Nested Product) -->
-          <div class="form-group">
+          <!-- Produs Părinte (Nested Product) — doar pentru produse -->
+          <div v-if="!isServiceForm" class="form-group">
             <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
               <span class="material-icons-outlined" style="font-size: 16px; color: #a78bfa;">account_tree</span>
               Produs de Bază (opțional)
@@ -384,8 +479,8 @@ function formatCurrency(val: number): string {
             </div>
           </div>
 
-          <!-- Componente -->
-          <div class="form-group">
+          <!-- Componente — doar pentru produse -->
+          <div v-if="!isServiceForm" class="form-group">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <label class="form-label" style="margin-bottom: 0;">
                 {{ form.produsParinteId ? 'Componente Adiționale' : 'Componente Materii Prime' }}
@@ -418,26 +513,28 @@ function formatCurrency(val: number): string {
           </div>
 
           <div class="form-group">
-            <label class="form-label">Preț Manoperă proprie (RON)</label>
+            <label class="form-label">{{ isServiceForm ? 'Preț Serviciu (RON)' : 'Preț Manoperă proprie (RON)' }}</label>
             <input v-model.number="form.pretManopera" class="form-input" type="number" min="0" step="0.01" />
           </div>
 
           <!-- Preview Pret -->
           <div style="background: var(--bg-tertiary); border-radius: var(--radius-md); padding: 16px; margin-top: 12px;">
-            <div v-if="form.produsParinteId" style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
-              <span style="color: #a78bfa;">Cost produs bază</span>
-              <span style="color: #a78bfa;">{{ formatCurrency(calcPretParinte()) }}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
-              <span style="color: var(--text-secondary);">Cost componente proprii</span>
-              <span>{{ formatCurrency(calcPretComponenteProprii()) }}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem;">
-              <span style="color: var(--text-secondary);">Manoperă proprie</span>
-              <span>{{ formatCurrency(form.pretManopera) }}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 2px solid var(--border-color);">
-              <span style="font-weight: 600; color: var(--text-secondary);">Preț Total</span>
+            <template v-if="!isServiceForm">
+              <div v-if="form.produsParinteId" style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
+                <span style="color: #a78bfa;">Cost produs bază</span>
+                <span style="color: #a78bfa;">{{ formatCurrency(calcPretParinte()) }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
+                <span style="color: var(--text-secondary);">Cost componente proprii</span>
+                <span>{{ formatCurrency(calcPretComponenteProprii()) }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem;">
+                <span style="color: var(--text-secondary);">Manoperă proprie</span>
+                <span>{{ formatCurrency(form.pretManopera) }}</span>
+              </div>
+            </template>
+            <div style="display: flex; justify-content: space-between; align-items: center;" :style="!isServiceForm ? 'padding-top: 10px; border-top: 2px solid var(--border-color);' : ''">
+              <span style="font-weight: 600; color: var(--text-secondary);">{{ isServiceForm ? 'Preț Serviciu' : 'Preț Total' }}</span>
               <span style="font-size: 1.3rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(calcPretTotal()) }}</span>
             </div>
           </div>
@@ -452,7 +549,7 @@ function formatCurrency(val: number): string {
       </div>
     </div>
 
-    <!-- Copy Dialog -->
+    <!-- Copy Dialog — doar pentru produse -->
     <div v-if="showCopyDialog" class="modal-overlay" @click.self="showCopyDialog = false">
       <div class="modal" style="width: min(480px, 90vw);">
         <div class="modal-header">
@@ -465,7 +562,7 @@ function formatCurrency(val: number): string {
           <div class="form-group">
             <label class="form-label">Selectează produsul sursă</label>
             <select v-model="copySourceId" class="form-select">
-              <option v-for="p in store.items" :key="p.id" :value="p.id">
+              <option v-for="p in store.produse" :key="p.id" :value="p.id">
                 {{ p.denumire }} ({{ store.getToateComponentele(p).length }} componente)
               </option>
             </select>
@@ -498,7 +595,7 @@ function formatCurrency(val: number): string {
           <div class="confirm-dialog">
             <span class="material-icons-outlined">warning</span>
             <h4>Confirmă Ștergerea</h4>
-            <p>Sigur doriți să ștergeți acest produs?</p>
+            <p>Sigur doriți să ștergeți acest element?</p>
           </div>
         </div>
         <div class="modal-footer">

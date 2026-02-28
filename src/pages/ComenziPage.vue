@@ -124,6 +124,11 @@ function getProdusName(id: string): string {
   return produs ? produs.denumire : 'Produs necunoscut'
 }
 
+function getProdusTip(id: string): string {
+  const produs = produseStore.getById(id)
+  return produs?.tip || 'produs'
+}
+
 function getTehnicianName(id?: string): string {
   if (!id) return ''
   const ang = angajatiStore.getById(id)
@@ -189,11 +194,13 @@ function openDetail(item: Comanda) {
 
 function addProdus() {
   if (produseStore.items.length === 0) {
-    toast.warning('Adaugă mai întâi produse în catalog!')
+    toast.warning('Adaugă mai întâi produse sau servicii în catalog!')
     return
   }
+  // Default to first product, fallback to first item
+  const firstProdus = produseStore.produse[0] || produseStore.items[0]
   form.value.produse.push({
-    produsId: produseStore.items[0].id,
+    produsId: firstProdus.id,
     cantitate: 1,
     observatii: '',
   })
@@ -699,31 +706,50 @@ function saveInvoice() {
             </select>
           </div>
 
-          <!-- Produse -->
+          <!-- Produse & Servicii -->
           <div class="form-group">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-              <label class="form-label" style="margin-bottom: 0;">Produse Comandate *</label>
+              <label class="form-label" style="margin-bottom: 0;">Produse & Servicii *</label>
               <button class="btn btn-secondary btn-sm" @click="addProdus">
                 <span class="material-icons-outlined">add</span>
-                Adaugă Produs
+                Adaugă pe Comandă
               </button>
             </div>
             <div v-if="form.produse.length === 0" style="padding: 20px; text-align: center; border: 1px dashed var(--border-color); border-radius: var(--radius-md); color: var(--text-muted); font-size: 0.85rem;">
-              Niciun produs adăugat
+              Niciun produs sau serviciu adăugat
             </div>
-            <div v-for="(pc, idx) in form.produse" :key="idx" style="margin-bottom: 10px; padding: 12px; background: var(--bg-tertiary); border-radius: var(--radius-md);">
+            <div v-for="(pc, idx) in form.produse" :key="idx" style="margin-bottom: 10px; padding: 12px; border-radius: var(--radius-md);"
+              :style="{
+                background: getProdusTip(pc.produsId) === 'serviciu' ? 'rgba(245, 158, 11, 0.06)' : 'var(--bg-tertiary)',
+                border: getProdusTip(pc.produsId) === 'serviciu' ? '1px solid rgba(245, 158, 11, 0.15)' : '1px solid transparent'
+              }"
+            >
               <div style="display: flex; gap: 12px; align-items: center;">
+                <!-- Tip indicator -->
+                <span v-if="getProdusTip(pc.produsId) === 'serviciu'" style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: rgba(245, 158, 11, 0.15); flex-shrink: 0;" title="Serviciu">
+                  <span class="material-icons-outlined" style="font-size: 16px; color: #f59e0b;">build</span>
+                </span>
+                <span v-else style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: rgba(59, 130, 246, 0.12); flex-shrink: 0;" title="Produs">
+                  <span class="material-icons-outlined" style="font-size: 16px; color: #3b82f6;">category</span>
+                </span>
                 <select v-model="pc.produsId" class="form-select" style="flex: 2;">
-                  <option v-for="p in produseStore.items" :key="p.id" :value="p.id">
-                    {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})
-                  </option>
+                  <optgroup v-if="produseStore.produse.length > 0" label="📦 PRODUSE">
+                    <option v-for="p in produseStore.produse" :key="p.id" :value="p.id">
+                      {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})
+                    </option>
+                  </optgroup>
+                  <optgroup v-if="produseStore.servicii.length > 0" label="🔧 SERVICII">
+                    <option v-for="p in produseStore.servicii" :key="p.id" :value="p.id">
+                      {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})
+                    </option>
+                  </optgroup>
                 </select>
                 <input v-model.number="pc.cantitate" class="form-input" type="number" min="1" style="flex: 0 0 80px;" placeholder="Cant." />
                 <button class="btn btn-ghost btn-icon" @click="removeProdus(idx)" style="color: var(--error);">
                   <span class="material-icons-outlined">remove_circle</span>
                 </button>
               </div>
-              <input v-model="pc.observatii" class="form-input" type="text" placeholder="Observații produs (opțional)..." style="margin-top: 8px;" />
+              <input v-model="pc.observatii" class="form-input" type="text" :placeholder="getProdusTip(pc.produsId) === 'serviciu' ? 'Detalii serviciu (opțional)...' : 'Observații produs (opțional)...'" style="margin-top: 8px;" />
             </div>
           </div>
 

@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Produs, ComponentaProdus } from '../types'
+import type { Produs, ComponentaProdus, TipProdus } from '../types'
 import { useMateriiPrimeStore } from './materiiPrime'
 import { supabase } from '../lib/supabase'
 
 function mapRow(row: any): Produs {
     return {
         id: row.id,
+        tip: (row.tip || 'produs') as TipProdus,
         denumire: row.denumire,
         descriere: row.descriere || '',
         produsParinteId: row.produs_parinte_id || undefined,
@@ -25,6 +26,8 @@ export const useProduseStore = defineStore('produse', () => {
     const loaded = ref(false)
 
     const totalItems = computed(() => items.value.length)
+    const produse = computed(() => items.value.filter(i => i.tip === 'produs'))
+    const servicii = computed(() => items.value.filter(i => i.tip === 'serviciu'))
 
     async function fetchAll() {
         const { data, error } = await supabase
@@ -150,9 +153,10 @@ export const useProduseStore = defineStore('produse', () => {
         const { data, error } = await supabase
             .from('produse')
             .insert({
+                tip: item.tip || 'produs',
                 denumire: item.denumire,
                 descriere: item.descriere,
-                produs_parinte_id: item.produsParinteId || null,
+                produs_parinte_id: item.tip === 'serviciu' ? null : (item.produsParinteId || null),
                 pret_manopera: item.pretManopera,
             })
             .select()
@@ -218,6 +222,8 @@ export const useProduseStore = defineStore('produse', () => {
         items,
         loaded,
         totalItems,
+        produse,
+        servicii,
         getById,
         getToateComponentele,
         calculeazaPretProdus,

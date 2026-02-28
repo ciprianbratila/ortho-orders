@@ -15,12 +15,15 @@ export interface ComponentaProdus {
     cantitate: number
 }
 
+export type TipProdus = 'produs' | 'serviciu'
+
 export interface Produs {
     id: string
+    tip: TipProdus
     denumire: string
     descriere: string
-    produsParinteId?: string // produs de bază (nested product)
-    componente: ComponentaProdus[] // componente adiționale (pe lângă cele din produs părinte)
+    produsParinteId?: string // produs de bază (nested product) — doar pentru produse, nu servicii
+    componente: ComponentaProdus[] // componente materii prime — doar pentru produse, nu servicii
     pretManopera: number
     createdAt: string
     updatedAt: string
@@ -60,6 +63,7 @@ export interface Angajat {
     telefon: string
     email: string
     activ: boolean
+    utilizatorId?: string
     createdAt: string
     updatedAt: string
 }

@@ -12,6 +12,7 @@ function mapRow(row: any): Angajat {
         telefon: row.telefon || '',
         email: row.email || '',
         activ: row.activ,
+        utilizatorId: row.utilizator_id || undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }
@@ -38,6 +39,10 @@ export const useAngajatiStore = defineStore('angajati', () => {
         return items.value.find(item => item.id === id)
     }
 
+    function getByUserId(userId: string): Angajat | undefined {
+        return items.value.find(item => item.utilizatorId === userId)
+    }
+
     async function add(item: Omit<Angajat, 'id' | 'createdAt' | 'updatedAt'>) {
         const { data, error } = await supabase
             .from('angajati')
@@ -48,6 +53,7 @@ export const useAngajatiStore = defineStore('angajati', () => {
                 telefon: item.telefon,
                 email: item.email,
                 activ: item.activ,
+                utilizator_id: item.utilizatorId || null,
             })
             .select()
             .single()
@@ -65,6 +71,7 @@ export const useAngajatiStore = defineStore('angajati', () => {
         if (data.telefon !== undefined) updateData.telefon = data.telefon
         if (data.email !== undefined) updateData.email = data.email
         if (data.activ !== undefined) updateData.activ = data.activ
+        if (data.utilizatorId !== undefined) updateData.utilizator_id = data.utilizatorId || null
 
         const { error } = await supabase.from('angajati').update(updateData).eq('id', id)
         if (error) { console.error('Eroare actualizare angajat:', error); return }
@@ -81,5 +88,5 @@ export const useAngajatiStore = defineStore('angajati', () => {
         items.value = items.value.filter(item => item.id !== id)
     }
 
-    return { items, loaded, totalItems, angajatiActivi, getById, fetchAll, add, update, remove }
+    return { items, loaded, totalItems, angajatiActivi, getById, getByUserId, fetchAll, add, update, remove }
 })

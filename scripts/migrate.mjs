@@ -60,6 +60,8 @@ if (!databaseUrl) {
 const SQL_FILES = [
     'schema.sql',
     'functions.sql',
+    '002_add_tip_produse.sql',
+    '003_password_hash_angajat_user.sql',
 ]
 
 async function runMigrations() {

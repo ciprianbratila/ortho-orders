@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAngajatiStore } from '../stores/angajati'
+import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import type { Angajat } from '../types'
 
 const store = useAngajatiStore()
+const auth = useAuthStore()
 const toast = useToastStore()
 
 const searchQuery = ref('')
@@ -20,7 +22,28 @@ const form = ref({
   telefon: '',
   email: '',
   activ: true,
+  utilizatorId: '' as string,
 })
+
+// Useri disponibili (neasisgnați unui alt angajat)
+const availableUsers = computed(() => {
+  return auth.users.filter(u => {
+    // User-ul curent editat poate fi menținut în listă
+    if (editingId.value) {
+      const editingAngajat = store.getById(editingId.value)
+      if (editingAngajat?.utilizatorId === u.id) return true
+    }
+    // Verifică dacă user-ul e deja asignat altui angajat
+    const assignedAngajat = store.getByUserId(u.id)
+    return !assignedAngajat
+  })
+})
+
+function getUserName(userId?: string): string {
+  if (!userId) return ''
+  const u = auth.users.find(x => x.id === userId)
+  return u ? `${u.prenume} ${u.nume} (@${u.username})` : ''
+}
 
 const filteredItems = computed(() => {
   if (!searchQuery.value) return store.items
@@ -35,7 +58,7 @@ const filteredItems = computed(() => {
 
 function openAdd() {
   editingId.value = null
-  form.value = { nume: '', prenume: '', functie: 'Tehnician', telefon: '', email: '', activ: true }
+  form.value = { nume: '', prenume: '', functie: 'Tehnician', telefon: '', email: '', activ: true, utilizatorId: '' }
   showModal.value = true
 }
 
@@ -48,6 +71,7 @@ function openEdit(item: Angajat) {
     telefon: item.telefon,
     email: item.email,
     activ: item.activ,
+    utilizatorId: item.utilizatorId || '',
   }
   showModal.value = true
 }
@@ -61,11 +85,15 @@ function save() {
     toast.error('Funcția este obligatorie!')
     return
   }
+  const payload = {
+    ...form.value,
+    utilizatorId: form.value.utilizatorId || undefined,
+  }
   if (editingId.value) {
-    store.update(editingId.value, { ...form.value })
+    store.update(editingId.value, payload)
     toast.success('Angajat actualizat cu succes!')
   } else {
-    store.add({ ...form.value })
+    store.add(payload)
     toast.success('Angajat adăugat cu succes!')
   }
   showModal.value = false
@@ -158,6 +186,10 @@ function formatDate(date: string): string {
                 </div>
                 <div>
                   <div style="font-weight: 500;">{{ item.nume }} {{ item.prenume }}</div>
+                  <div v-if="item.utilizatorId" style="font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 3px; margin-top: 1px;">
+                    <span class="material-icons-outlined" style="font-size: 12px;">account_circle</span>
+                    {{ getUserName(item.utilizatorId) }}
+                  </div>
                 </div>
               </div>
             </td>
@@ -250,6 +282,21 @@ function formatDate(date: string): string {
               <input v-model="form.email" class="form-input" type="email" placeholder="email@exemplu.ro" />
             </div>
           </div>
+
+          <!-- Asociere User -->
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
+              <span class="material-icons-outlined" style="font-size: 16px; color: #3b82f6;">account_circle</span>
+              Cont utilizator asociat (opțional)
+            </label>
+            <select v-model="form.utilizatorId" class="form-select">
+              <option value="">— Fără cont de utilizator —</option>
+              <option v-for="u in availableUsers" :key="u.id" :value="u.id">
+                {{ u.prenume }} {{ u.nume }} (@{{ u.username }}) — {{ auth.getGroupById(u.grupId)?.denumire }}
+              </option>
+            </select>
+          </div>
+
           <div class="form-group" v-if="editingId">
             <label class="form-label" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
               <input type="checkbox" v-model="form.activ" style="width: 18px; height: 18px; accent-color: var(--primary-500);" />

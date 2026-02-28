@@ -9,7 +9,7 @@ function mapUser(row: any): Utilizator {
     return {
         id: row.id,
         username: row.username,
-        parola: row.parola,
+        parola: '', // nu expunem hash-ul pe client
         nume: row.nume,
         prenume: row.prenume,
         email: row.email || '',
@@ -59,7 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     async function fetchAll() {
         const [usersRes, groupsRes] = await Promise.all([
-            supabase.from('utilizatori').select('*').order('username'),
+            supabase.from('utilizatori').select('id, username, nume, prenume, email, grup_id, activ, created_at, updated_at').order('username'),
             supabase.from('grupuri').select('*').order('denumire'),
         ])
         if (usersRes.error) console.error('Eroare utilizatori:', usersRes.error)
@@ -81,18 +81,23 @@ export const useAuthStore = defineStore('auth', () => {
 
     // ====== Auth ======
     async function login(username: string, parola: string): Promise<{ success: boolean; error?: string }> {
-        const { data, error } = await supabase
-            .from('utilizatori')
-            .select('*')
-            .eq('username', username)
-            .eq('parola', parola)
-            .single()
+        // Folosim funcția RPC login_user care face verificarea pe server
+        const { data, error } = await supabase.rpc('login_user', {
+            p_username: username,
+            p_password: parola,
+        })
 
-        if (error || !data) {
+        if (error) {
+            console.error('Login RPC error:', error)
             return { success: false, error: 'Utilizator sau parolă incorectă!' }
         }
 
-        const user = mapUser(data)
+        if (!data || data.length === 0) {
+            return { success: false, error: 'Utilizator sau parolă incorectă!' }
+        }
+
+        const row = data[0]
+        const user = mapUser(row)
         if (!user.activ) {
             return { success: false, error: 'Contul este dezactivat. Contactați administratorul.' }
         }
@@ -118,20 +123,62 @@ export const useAuthStore = defineStore('auth', () => {
         return allowedModules.value.includes(module)
     }
 
+    // ====== Change Password (utilizator curent) ======
+    async function changePassword(oldPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+        if (!currentUser.value) {
+            return { success: false, error: 'Nu sunteți autentificat.' }
+        }
+
+        const { data, error } = await supabase.rpc('change_password', {
+            p_user_id: currentUser.value.id,
+            p_old_password: oldPassword,
+            p_new_password: newPassword,
+        })
+
+        if (error) {
+            console.error('Eroare schimbare parolă:', error)
+            return { success: false, error: 'Eroare la schimbarea parolei.' }
+        }
+
+        if (data === false) {
+            return { success: false, error: 'Parola curentă este incorectă.' }
+        }
+
+        return { success: true }
+    }
+
+    // ====== Reset Password (admin) ======
+    async function resetPassword(userId: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+        const { error } = await supabase.rpc('set_password', {
+            p_user_id: userId,
+            p_new_password: newPassword,
+        })
+
+        if (error) {
+            console.error('Eroare resetare parolă:', error)
+            return { success: false, error: 'Eroare la resetarea parolei.' }
+        }
+
+        return { success: true }
+    }
+
     // ====== User CRUD ======
     async function addUser(user: Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>) {
+        // Hash-uim parola pe server via RPC
+        const { data: hashedPw } = await supabase.rpc('hash_password', { plain_password: user.parola })
+
         const { data, error } = await supabase
             .from('utilizatori')
             .insert({
                 username: user.username,
-                parola: user.parola,
+                parola: hashedPw || user.parola,
                 nume: user.nume,
                 prenume: user.prenume,
                 email: user.email,
                 grup_id: user.grupId,
                 activ: user.activ,
             })
-            .select()
+            .select('id, username, nume, prenume, email, grup_id, activ, created_at, updated_at')
             .single()
         if (error) { console.error('Eroare adăugare user:', error); return null }
         const newUser = mapUser(data)
@@ -142,19 +189,20 @@ export const useAuthStore = defineStore('auth', () => {
     async function updateUser(id: string, data: Partial<Omit<Utilizator, 'id' | 'createdAt' | 'updatedAt'>>) {
         const updateData: any = { updated_at: new Date().toISOString() }
         if (data.username !== undefined) updateData.username = data.username
-        if (data.parola !== undefined) updateData.parola = data.parola
         if (data.nume !== undefined) updateData.nume = data.nume
         if (data.prenume !== undefined) updateData.prenume = data.prenume
         if (data.email !== undefined) updateData.email = data.email
         if (data.grupId !== undefined) updateData.grup_id = data.grupId
         if (data.activ !== undefined) updateData.activ = data.activ
+        // Parola nu se actualizează prin updateUser, se folosește changePassword/resetPassword
 
         const { error } = await supabase.from('utilizatori').update(updateData).eq('id', id)
         if (error) { console.error('Eroare actualizare user:', error); return }
 
         const index = users.value.findIndex(u => u.id === id)
         if (index !== -1) {
-            users.value[index] = { ...users.value[index], ...data, updatedAt: new Date().toISOString() }
+            const { parola, ...rest } = data
+            users.value[index] = { ...users.value[index], ...rest, updatedAt: new Date().toISOString() }
         }
     }
 
@@ -214,6 +262,7 @@ export const useAuthStore = defineStore('auth', () => {
         users, groups, loaded, currentUser, isLoggedIn, isAdmin,
         currentGroup, allowedModules,
         fetchAll, login, logout, hasAccess,
+        changePassword, resetPassword,
         addUser, updateUser, removeUser,
         addGroup, updateGroup, removeGroup,
         getGroupById, getUsersByGroup,
