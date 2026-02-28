@@ -27,10 +27,6 @@ const currentDate = computed(() => {
       </div>
     </div>
     <div class="top-bar-right">
-      <div class="search-box">
-        <span class="material-icons-outlined">search</span>
-        <input type="text" placeholder="Caută..." />
-      </div>
       <button class="btn btn-ghost btn-icon" title="Notificări">
         <span class="material-icons-outlined">notifications</span>
       </button>
