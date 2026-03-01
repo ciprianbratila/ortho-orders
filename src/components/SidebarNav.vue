@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useComenziStore } from '../stores/comenzi'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
+import { useUiStore } from '../stores/ui'
 import type { ModulAcces } from '../types'
 
 const route = useRoute()
@@ -11,6 +12,7 @@ const router = useRouter()
 const comenziStore = useComenziStore()
 const auth = useAuthStore()
 const toast = useToastStore()
+const uiStore = useUiStore()
 
 const showProfileModal = ref(false)
 const showPasswordForm = ref(false)
@@ -86,7 +88,7 @@ async function savePassword() {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'mobile-open': uiStore.isSidebarOpen }">
     <div class="sidebar-header">
       <div class="sidebar-logo">
         <div class="sidebar-logo-icon">
@@ -96,6 +98,9 @@ async function savePassword() {
           <h1>OrthoOrders</h1>
           <span>Management Comenzi</span>
         </div>
+        <button class="btn btn-ghost btn-icon close-sidebar-btn" @click="uiStore.closeSidebar" style="margin-left: auto;">
+          <span class="material-icons-outlined">close</span>
+        </button>
       </div>
     </div>
     <nav class="sidebar-nav">
@@ -106,6 +111,7 @@ async function savePassword() {
         :to="item.to"
         class="nav-item"
         :class="{ active: isActive(item.to) }"
+        @click="uiStore.closeSidebar"
       >
         <span class="material-icons-outlined">{{ item.icon }}</span>
         {{ item.label }}
@@ -123,6 +129,7 @@ async function savePassword() {
           to="/admin"
           class="nav-item"
           :class="{ active: isActive('/admin') }"
+          @click="uiStore.closeSidebar"
         >
           <span class="material-icons-outlined">admin_panel_settings</span>
           Administrare

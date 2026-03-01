@@ -306,8 +306,8 @@ function formatCurrency(val: number): string {
       <div v-if="filteredItems.length > 0" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px;">
         <div v-for="item in filteredItems" :key="item.id" class="card" style="padding: 20px; position: relative;">
 
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-right: 0;">
-            <div style="flex: 1; min-width: 0;">
+          <div class="product-card-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-right: 0;">
+            <div class="product-info-wrap" style="flex: 1; min-width: 0;">
               <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">{{ item.denumire }}</div>
               <div v-if="item.produsParinteId" style="margin-top: 6px;">
                 <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
@@ -396,8 +396,8 @@ function formatCurrency(val: number): string {
     <template v-if="activeTab === 'servicii'">
       <div v-if="filteredItems.length > 0" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px;">
         <div v-for="item in filteredItems" :key="item.id" class="card" style="padding: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-            <div style="flex: 1; min-width: 0;">
+          <div class="product-card-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div class="product-info-wrap" style="flex: 1; min-width: 0;">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="material-icons-outlined" style="font-size: 20px; color: #f59e0b;">build</span>
                 <div style="font-size: 1rem; font-weight: 600; color: var(--text-primary);">{{ item.denumire }}</div>

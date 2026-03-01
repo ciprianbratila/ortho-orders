@@ -11,8 +11,10 @@ import { useProduseStore } from './stores/produse'
 import { useComenziStore } from './stores/comenzi'
 import { useFacturiStore } from './stores/facturi'
 import { useAuthStore } from './stores/auth'
+import { useUiStore } from './stores/ui'
 
 const route = useRoute()
+const uiStore = useUiStore()
 
 const isLoginPage = computed(() => route.name === 'login')
 
@@ -42,6 +44,9 @@ onMounted(async () => {
 
   <!-- App layout -->
   <div v-else class="app-layout">
+    <!-- Overlay for mobile sidebar -->
+    <div class="mobile-sidebar-overlay" :class="{ 'active': uiStore.isSidebarOpen }" @click="uiStore.closeSidebar"></div>
+    
     <SidebarNav />
     <div class="main-content">
       <TopBar />
