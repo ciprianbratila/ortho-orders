@@ -62,6 +62,9 @@ const SQL_FILES = [
     'functions.sql',
     '002_add_tip_produse.sql',
     '003_password_hash_angajat_user.sql',
+    '004_istoric_stoc.sql',
+    '005_valoare_stoc.sql',
+    '006_adaos_comercial.sql',
 ]
 
 async function runMigrations() {

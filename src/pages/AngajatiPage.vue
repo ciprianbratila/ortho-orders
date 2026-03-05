@@ -58,7 +58,7 @@ const filteredItems = computed(() => {
 
 function openAdd() {
   editingId.value = null
-  form.value = { nume: '', prenume: '', functie: 'Tehnician', telefon: '', email: '', activ: true, utilizatorId: '' }
+  form.value = { nume: '', prenume: '', functie: '', telefon: '', email: '', activ: true, utilizatorId: '' }
   showModal.value = true
 }
 
@@ -265,6 +265,7 @@ function formatDate(date: string): string {
           <div class="form-group">
             <label class="form-label">Funcție *</label>
             <select v-model="form.functie" class="form-select">
+              <option value="" disabled>— Selectează funcția —</option>
               <option value="Tehnician">Tehnician</option>
               <option value="Tehnician Senior">Tehnician Senior</option>
               <option value="Maistru">Maistru</option>

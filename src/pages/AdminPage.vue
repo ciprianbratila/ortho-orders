@@ -50,7 +50,7 @@ const filteredUsers = computed(() => {
 
 function openAddUser() {
   editingUserId.value = null
-  userForm.value = { username: '', parola: '1234', nume: '', prenume: '', email: '', grupId: auth.groups[0]?.id || '', activ: true }
+  userForm.value = { username: '', parola: '1234', nume: '', prenume: '', email: '', grupId: '', activ: true }
   showUserModal.value = true
 }
 
@@ -421,6 +421,7 @@ function executeDeleteGroup() {
             <div class="form-group">
               <label class="form-label">Grup *</label>
               <select v-model="userForm.grupId" class="form-select">
+                <option value="" disabled>— Selectează grup —</option>
                 <option v-for="g in auth.groups" :key="g.id" :value="g.id">{{ g.denumire }}</option>
               </select>
             </div>

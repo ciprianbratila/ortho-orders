@@ -3,11 +3,16 @@ import { ref, computed } from 'vue'
 import { useFacturiStore } from '../stores/facturi'
 import { useToastStore } from '../stores/toast'
 import type { Factura, StatusFactura } from '../types'
+import * as XLSX from 'xlsx'
 
 const facturiStore = useFacturiStore()
 const toast = useToastStore()
 const searchQuery = ref('')
 const filterStatus = ref<string>('all')
+const filterClient = ref('')
+const filterDataDeLa = ref('')
+const filterDataPanaLa = ref('')
+const showFilters = ref(false)
 const showPreviewModal = ref(false)
 const showDeleteConfirm = ref(false)
 const previewFactura = ref<Factura | null>(null)
@@ -37,11 +42,50 @@ const metodaPlataLabels: Record<string, string> = {
   decizie_cas: 'Decizie CAS',
 }
 
+// Unique client names for filter dropdown
+const uniqueClients = computed(() => {
+  const set = new Map<string, string>()
+  for (const f of facturiStore.items) {
+    const key = `${f.dateClient.nume} ${f.dateClient.prenume}`
+    if (!set.has(key)) set.set(key, key)
+  }
+  return Array.from(set.values()).sort()
+})
+
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (filterStatus.value !== 'all') count++
+  if (filterClient.value) count++
+  if (filterDataDeLa.value) count++
+  if (filterDataPanaLa.value) count++
+  return count
+})
+
 const filteredItems = computed(() => {
   let items = facturiStore.items
+
+  // Status filter
   if (filterStatus.value !== 'all') {
     items = items.filter(f => f.status === filterStatus.value)
   }
+
+  // Client filter
+  if (filterClient.value) {
+    items = items.filter(f => `${f.dateClient.nume} ${f.dateClient.prenume}` === filterClient.value)
+  }
+
+  // Date range filter
+  if (filterDataDeLa.value) {
+    const from = new Date(filterDataDeLa.value)
+    items = items.filter(f => new Date(f.dataEmitere) >= from)
+  }
+  if (filterDataPanaLa.value) {
+    const to = new Date(filterDataPanaLa.value)
+    to.setHours(23, 59, 59, 999)
+    items = items.filter(f => new Date(f.dataEmitere) <= to)
+  }
+
+  // Text search
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     items = items.filter(f =>
@@ -50,8 +94,17 @@ const filteredItems = computed(() => {
       `${f.dateClient.nume} ${f.dateClient.prenume}`.toLowerCase().includes(q)
     )
   }
+
   return [...items].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 })
+
+function clearFilters() {
+  filterStatus.value = 'all'
+  filterClient.value = ''
+  filterDataDeLa.value = ''
+  filterDataPanaLa.value = ''
+  searchQuery.value = ''
+}
 
 function openPreview(factura: Factura) {
   previewFactura.value = factura
@@ -82,8 +135,111 @@ function formatDate(date: string): string {
   return new Date(date).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+function formatDateExcel(date: string): string {
+  if (!date) return ''
+  return new Date(date).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 function formatCurrency(val: number): string {
   return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(val)
+}
+
+function formatCurrencyExcel(val: number): number {
+  return Math.round(val * 100) / 100
+}
+
+// ============ XLSX Export ============
+async function exportToXlsx() {
+  if (filteredItems.value.length === 0) {
+    toast.warning('Nu există facturi de exportat cu filtrele curente!')
+    return
+  }
+
+  try {
+    // Prepare data rows
+    const rows = filteredItems.value.map(f => ({
+      'Nr. Factură': f.numarFactura,
+      'Nr. Comandă': f.numarComanda,
+      'Client': `${f.dateClient.nume} ${f.dateClient.prenume}`,
+      'CNP Client': f.dateClient.cnp || '',
+      'Telefon Client': f.dateClient.telefon || '',
+      'Adresă Client': f.dateClient.adresa || '',
+      'Data Emitere': formatDateExcel(f.dataEmitere),
+      'Data Scadență': formatDateExcel(f.dataScadenta),
+      'Status': statusLabels[f.status] || f.status,
+      'Metodă Plată': metodaPlataLabels[f.metodaPlata] || f.metodaPlata,
+      'Subtotal (RON)': formatCurrencyExcel(f.subtotal),
+      'TVA (%)': f.tva,
+      'Total TVA (RON)': formatCurrencyExcel(f.totalTVA),
+      'Total Factură (RON)': formatCurrencyExcel(f.totalFactura),
+      'Avans (RON)': formatCurrencyExcel(f.avans),
+      'Decizie CAS (RON)': formatCurrencyExcel(f.decizieCASValoare),
+      'Rest Plată (RON)': formatCurrencyExcel(f.restPlata),
+      'Observații': f.observatii || '',
+    }))
+
+    // Create workbook
+    const ws = XLSX.utils.json_to_sheet(rows)
+
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 16 }, { wch: 18 }, { wch: 24 }, { wch: 15 },
+      { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 14 },
+      { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 8 },
+      { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+      { wch: 14 }, { wch: 30 },
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturi')
+
+    // Generate filename
+    const now = new Date()
+    const dateStr = now.toISOString().split('T')[0]
+    let filename = `Facturi_${dateStr}`
+    if (filterStatus.value !== 'all') filename += `_${statusLabels[filterStatus.value]}`
+    if (filterClient.value) filename += `_${filterClient.value.replace(/\s+/g, '_')}`
+    filename += '.xlsx'
+
+    // Write workbook to buffer
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+
+    // Use File System Access API (native Save As dialog)
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: filename,
+          types: [{
+            description: 'Fișier Excel',
+            accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+          }],
+        })
+        const writable = await handle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+        toast.success(`${filteredItems.value.length} facturi salvate cu succes!`)
+        return
+      } catch (pickerErr: any) {
+        if (pickerErr.name === 'AbortError') return // User cancelled
+        console.warn('Save picker failed, falling back:', pickerErr)
+      }
+    }
+
+    // Fallback: download via <a> element
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+    toast.success(`${filteredItems.value.length} facturi exportate în ${filename}`)
+  } catch (err: any) {
+    console.error('Eroare export XLSX:', err)
+    toast.error('Eroare la exportul fișierului XLSX: ' + (err.message || 'eroare necunoscută'))
+  }
 }
 
 function generateInvoiceHTML(factura: Factura): string {
@@ -278,10 +434,51 @@ function downloadPDF(factura: Factura) {
             <span class="material-icons-outlined">search</span>
             <input v-model="searchQuery" type="text" placeholder="Caută factură, comandă, client..." />
           </div>
-          <select v-model="filterStatus" class="form-select" style="width: 180px;">
-            <option value="all">Toate Statusurile</option>
-            <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
-          </select>
+          <button class="btn btn-secondary btn-sm" @click="showFilters = !showFilters" style="display: flex; align-items: center; gap: 6px; position: relative;">
+            <span class="material-icons-outlined" style="font-size: 18px;">filter_list</span>
+            Filtre
+            <span v-if="activeFilterCount > 0" style="position: absolute; top: -6px; right: -6px; background: var(--text-accent); color: white; width: 18px; height: 18px; border-radius: 50%; font-size: 0.68rem; display: flex; align-items: center; justify-content: center; font-weight: 700;">
+              {{ activeFilterCount }}
+            </span>
+          </button>
+        </div>
+        <button class="btn btn-primary" @click="exportToXlsx" style="display: flex; align-items: center; gap: 6px;">
+          <span class="material-icons-outlined" style="font-size: 18px;">file_download</span>
+          Export XLSX ({{ filteredItems.length }})
+        </button>
+      </div>
+
+      <!-- Expanded Filter Panel -->
+      <div v-if="showFilters" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; align-items: end;">
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Status</label>
+            <select v-model="filterStatus" class="form-select">
+              <option value="all">Toate Statusurile</option>
+              <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Client</label>
+            <select v-model="filterClient" class="form-select">
+              <option value="">Toți Clienții</option>
+              <option v-for="c in uniqueClients" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Data emitere de la</label>
+            <input v-model="filterDataDeLa" class="form-input" type="date" />
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.75rem;">Data emitere până la</label>
+            <input v-model="filterDataPanaLa" class="form-input" type="date" />
+          </div>
+          <div style="display: flex; align-items: flex-end;">
+            <button v-if="activeFilterCount > 0" class="btn btn-ghost btn-sm" @click="clearFilters" style="color: var(--error); white-space: nowrap;">
+              <span class="material-icons-outlined" style="font-size: 16px;">clear</span>
+              Resetează filtre
+            </button>
+          </div>
         </div>
       </div>
     </div>

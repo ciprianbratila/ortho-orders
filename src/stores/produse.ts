@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Produs, ComponentaProdus, TipProdus } from '../types'
+import type { Produs, ComponentaProdus, TipProdus, TipAdaos } from '../types'
 import { useMateriiPrimeStore } from './materiiPrime'
 import { supabase } from '../lib/supabase'
 
@@ -16,6 +16,8 @@ function mapRow(row: any): Produs {
             cantitate: Number(c.cantitate),
         })),
         pretManopera: Number(row.pret_manopera),
+        adaosComercial: Number(row.adaos_comercial || 0),
+        tipAdaos: (row.tip_adaos || 'valoric') as TipAdaos,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }
@@ -62,6 +64,14 @@ export const useProduseStore = defineStore('produse', () => {
         return componente
     }
 
+    function calculeazaAdaos(produs: Produs, costBaza: number): number {
+        if (produs.adaosComercial <= 0) return 0
+        if (produs.tipAdaos === 'procentual') {
+            return costBaza * (produs.adaosComercial / 100)
+        }
+        return produs.adaosComercial
+    }
+
     function calculeazaPretProdus(produs: Produs): number {
         const materiiStore = useMateriiPrimeStore()
         const toateComp = getToateComponentele(produs)
@@ -69,7 +79,7 @@ export const useProduseStore = defineStore('produse', () => {
         for (const comp of toateComp) {
             const materie = materiiStore.getById(comp.materiePrimaId)
             if (materie) {
-                pretComponente += materie.pret * comp.cantitate
+                pretComponente += materiiStore.getPretMediu(materie) * comp.cantitate
             }
         }
         let pretManopera = produs.pretManopera
@@ -79,7 +89,8 @@ export const useProduseStore = defineStore('produse', () => {
                 pretManopera += calculeazaManoperaTotala(parinte)
             }
         }
-        return pretComponente + pretManopera
+        const costBaza = pretComponente + pretManopera
+        return costBaza + calculeazaAdaos(produs, costBaza)
     }
 
     function calculeazaManoperaTotala(produs: Produs): number {
@@ -99,7 +110,7 @@ export const useProduseStore = defineStore('produse', () => {
         for (const comp of componente) {
             const materie = materiiStore.getById(comp.materiePrimaId)
             if (materie) {
-                total += materie.pret * comp.cantitate
+                total += materiiStore.getPretMediu(materie) * comp.cantitate
             }
         }
         return total
@@ -158,6 +169,8 @@ export const useProduseStore = defineStore('produse', () => {
                 descriere: item.descriere,
                 produs_parinte_id: item.tip === 'serviciu' ? null : (item.produsParinteId || null),
                 pret_manopera: item.pretManopera,
+                adaos_comercial: item.adaosComercial || 0,
+                tip_adaos: item.tipAdaos || 'valoric',
             })
             .select()
             .single()
@@ -189,6 +202,8 @@ export const useProduseStore = defineStore('produse', () => {
         if (data.descriere !== undefined) updateData.descriere = data.descriere
         if (data.produsParinteId !== undefined) updateData.produs_parinte_id = data.produsParinteId || null
         if (data.pretManopera !== undefined) updateData.pret_manopera = data.pretManopera
+        if (data.adaosComercial !== undefined) updateData.adaos_comercial = data.adaosComercial
+        if (data.tipAdaos !== undefined) updateData.tip_adaos = data.tipAdaos
 
         const { error } = await supabase.from('produse').update(updateData).eq('id', id)
         if (error) { console.error('Eroare actualizare produs:', error); return }
@@ -227,6 +242,7 @@ export const useProduseStore = defineStore('produse', () => {
         getById,
         getToateComponentele,
         calculeazaPretProdus,
+        calculeazaAdaos,
         calculeazaPretComponenteProprii,
         calculeazaManoperaTotala,
         verificaDuplicat,

@@ -5,8 +5,26 @@ export interface MateriePrima {
     pret: number
     unitateMasura: string
     stoc: number
+    valoareStoc: number
     createdAt: string
     updatedAt: string
+}
+
+// ============ Istoric Stoc ============
+export type TipMiscareStoc = 'achizitie' | 'comanda' | 'corectie' | 'anulare_comanda'
+
+export interface IstoricStoc {
+    id: string
+    materiePrimaId: string
+    tipMiscare: TipMiscareStoc
+    cantitate: number // positive = increase, negative = decrease
+    stocAnterior: number
+    stocNou: number
+    pretAchizitie?: number // purchase price per unit (only for achizitie)
+    comandaId?: string
+    numarComanda?: string
+    observatii: string
+    createdAt: string
 }
 
 // ============ Produse ============
@@ -16,6 +34,7 @@ export interface ComponentaProdus {
 }
 
 export type TipProdus = 'produs' | 'serviciu'
+export type TipAdaos = 'valoric' | 'procentual'
 
 export interface Produs {
     id: string
@@ -25,6 +44,8 @@ export interface Produs {
     produsParinteId?: string // produs de bază (nested product) — doar pentru produse, nu servicii
     componente: ComponentaProdus[] // componente materii prime — doar pentru produse, nu servicii
     pretManopera: number
+    adaosComercial: number
+    tipAdaos: TipAdaos
     createdAt: string
     updatedAt: string
 }

@@ -153,6 +153,10 @@ export const useComenziStore = defineStore('comenzi', () => {
     }
 
     async function updateStatus(id: string, status: StatusComanda) {
+        const comanda = getById(id)
+        if (!comanda) return
+
+        const oldStatus = comanda.status
         const updateData: any = { status, updated_at: new Date().toISOString() }
         if (status === 'livrata') {
             updateData.data_livrare_efectiva = new Date().toISOString()
@@ -160,6 +164,35 @@ export const useComenziStore = defineStore('comenzi', () => {
         const { error } = await supabase.from('comenzi').update(updateData).eq('id', id)
         if (error) { console.error('Eroare actualizare status:', error); return }
 
+        // Stock management
+        const produseStore = useProduseStore()
+        const { useMateriiPrimeStore } = await import('./materiiPrime')
+        const materiiStore = useMateriiPrimeStore()
+
+        // When order moves to "in_lucru" → DEDUCT stock 
+        if (status === 'in_lucru' && oldStatus === 'noua') {
+            for (const pc of comanda.produse) {
+                const produs = produseStore.getById(pc.produsId)
+                if (produs) {
+                    const componente = produseStore.getToateComponentele(produs)
+                    for (const comp of componente) {
+                        const cantitateDeScazut = comp.cantitate * pc.cantitate
+                        await materiiStore.adjustStock(
+                            comp.materiePrimaId,
+                            -cantitateDeScazut,
+                            'comanda',
+                            id,
+                            comanda.numarComanda
+                        )
+                    }
+                }
+            }
+        }
+
+        // NOTE: When an order is cancelled, stock is NOT automatically returned.
+        // The user must manually adjust stock via the Materii Prime stock correction feature.
+
+        // Update local state
         const index = items.value.findIndex(item => item.id === id)
         if (index !== -1) {
             items.value[index].status = status

@@ -146,7 +146,7 @@ function getRestPlata(comanda: Comanda): number {
 function openAdd(preselectedClientId?: string) {
   editingId.value = null
   form.value = {
-    clientId: preselectedClientId || (clientiStore.items.length > 0 ? clientiStore.items[0].id : ''),
+    clientId: preselectedClientId || '',
     tehnicianId: '',
     produse: [],
     status: 'noua',
@@ -197,10 +197,8 @@ function addProdus() {
     toast.warning('Adaugă mai întâi produse sau servicii în catalog!')
     return
   }
-  // Default to first product, fallback to first item
-  const firstProdus = produseStore.produse[0] || produseStore.items[0]
   form.value.produse.push({
-    produsId: firstProdus.id,
+    produsId: '',
     cantitate: 1,
     observatii: '',
   })
@@ -733,6 +731,7 @@ function saveInvoice() {
                   <span class="material-icons-outlined" style="font-size: 16px; color: #3b82f6;">category</span>
                 </span>
                 <select v-model="pc.produsId" class="form-select" style="flex: 2;">
+                  <option value="" disabled>— Selectează produs / serviciu —</option>
                   <optgroup v-if="produseStore.produse.length > 0" label="📦 PRODUSE">
                     <option v-for="p in produseStore.produse" :key="p.id" :value="p.id">
                       {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})

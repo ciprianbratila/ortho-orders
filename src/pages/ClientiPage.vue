@@ -202,7 +202,7 @@ function addDocument() {
   // refresh selectedClient
   selectedClient.value = store.getById(selectedClient.value.id) || null
   showDocForm.value = false
-  docForm.value = { tip: 'masuratori', denumire: '', observatii: '', numeDocument: undefined, fisierBase64: undefined }
+  docForm.value = { tip: '', denumire: '', observatii: '', numeDocument: undefined, fisierBase64: undefined }
   toast.success('Document adăugat!')
 }
 
@@ -428,6 +428,7 @@ function downloadDocFile(doc: DocumentClient) {
                 <div class="form-group">
                   <label class="form-label">Tip Document *</label>
                   <select v-model="docForm.tip" class="form-select">
+                    <option value="" disabled>— Selectează tip document —</option>
                     <option v-for="t in tipuriDocument" :key="t.value" :value="t.value">{{ t.label }}</option>
                   </select>
                 </div>
