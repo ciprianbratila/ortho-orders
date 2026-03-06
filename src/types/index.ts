@@ -46,6 +46,7 @@ export interface Produs {
     pretManopera: number
     adaosComercial: number
     tipAdaos: TipAdaos
+    pretFinal: number // frozen total price saved at creation/edit
     createdAt: string
     updatedAt: string
 }

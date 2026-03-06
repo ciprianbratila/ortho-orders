@@ -27,6 +27,7 @@ const form = ref({
   pretManopera: 0,
   adaosComercial: 0,
   tipAdaos: 'valoric' as 'valoric' | 'procentual',
+  pretFinal: 0,
 })
 
 const filteredItems = computed(() => {
@@ -86,6 +87,7 @@ function openAdd() {
     pretManopera: 0,
     adaosComercial: 0,
     tipAdaos: 'valoric' as const,
+    pretFinal: 0,
   }
   showModal.value = true
 }
@@ -101,6 +103,7 @@ function openEdit(item: Produs) {
     pretManopera: item.pretManopera,
     adaosComercial: item.adaosComercial || 0,
     tipAdaos: item.tipAdaos || 'valoric',
+    pretFinal: item.pretFinal || 0,
   }
   showModal.value = true
 }
@@ -148,7 +151,7 @@ function calcPretParinte(): number {
   if (!form.value.produsParinteId) return 0
   const parinte = store.getById(form.value.produsParinteId)
   if (!parinte) return 0
-  return store.calculeazaPretProdus(parinte)
+  return store.getPretProdus(parinte)
 }
 
 function calcPretTotal(): number {
@@ -199,6 +202,7 @@ function save() {
     ...form.value,
     produsParinteId: form.value.tip === 'serviciu' ? undefined : (form.value.produsParinteId || undefined),
     componente: form.value.tip === 'serviciu' ? [] : form.value.componente,
+    pretFinal: calcPretTotal(), // Freeze price at save time
   }
 
   if (editingId.value) {
@@ -209,6 +213,13 @@ function save() {
     toast.success(form.value.tip === 'serviciu' ? 'Serviciu adăugat cu succes!' : 'Produs adăugat cu succes!')
   }
   showModal.value = false
+}
+
+async function recalculeazaPretProdus() {
+  if (!editingId.value) return
+  const pretNou = calcPretTotal()
+  form.value.pretFinal = pretNou
+  toast.success(`Preț recalculat: ${formatCurrency(pretNou)}`)
 }
 
 function confirmDelete(id: string) {
@@ -368,25 +379,28 @@ function formatCurrency(val: number): string {
 
           <!-- Preturi -->
           <div style="padding-top: 12px; border-top: 1px solid var(--border-color);">
-            <div v-if="item.produsParinteId" style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
-              <span style="color: #a78bfa;">Cost bază ({{ getParinteName(item.produsParinteId) }})</span>
-              <span style="color: #a78bfa;">{{ formatCurrency(store.calculeazaPretProdus(store.getById(item.produsParinteId)!)) }}</span>
+            <div style="display: flex; justify-content: space-between; padding-top: 4px; margin-bottom: 8px;">
+              <span style="font-size: 0.82rem; color: var(--text-muted);">Preț Produs</span>
+              <span style="font-size: 1.1rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(store.getPretProdus(item)) }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
-              <span style="color: var(--text-muted);">{{ item.produsParinteId ? 'Cost adițional' : 'Cost materiale' }}</span>
-              <span>{{ formatCurrency(store.calculeazaPretComponenteProprii(item.componente)) }}</span>
+              <span style="color: var(--text-muted);">Cost curent materiale</span>
+              <span>{{ formatCurrency(store.calculeazaCostCurentMateriale(item)) }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
-              <span style="color: var(--text-muted);">Manoperă proprie</span>
-              <span>{{ formatCurrency(item.pretManopera) }}</span>
+              <span style="color: var(--text-muted);">Manoperă</span>
+              <span>{{ formatCurrency(store.calculeazaManoperaTotala(item)) }}</span>
             </div>
             <div v-if="item.adaosComercial > 0" style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
               <span style="color: #f59e0b;">Adaos comercial <span style="opacity: 0.7;">({{ item.tipAdaos === 'procentual' ? item.adaosComercial + '%' : 'fix' }})</span></span>
-              <span style="color: #f59e0b;">{{ formatCurrency(store.calculeazaAdaos(item, store.calculeazaPretComponenteProprii(store.getToateComponentele(item)) + store.calculeazaManoperaTotala(item))) }}</span>
+              <span style="color: #f59e0b;">{{ formatCurrency(store.calculeazaAdaosRaw(item.adaosComercial, item.tipAdaos, store.calculeazaCostCurentMateriale(item) + store.calculeazaManoperaTotala(item))) }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-              <span style="font-size: 0.82rem; color: var(--text-muted);">Preț Total</span>
-              <span style="font-size: 1.1rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(store.calculeazaPretProdus(item)) }}</span>
+              <span style="font-size: 0.82rem; font-weight: 600;">Marjă Profit</span>
+              <span style="font-size: 0.95rem; font-weight: 700;"
+                :style="{ color: store.calculeazaMarjaProfit(item) >= 0 ? '#10b981' : '#ef4444' }">
+                {{ formatCurrency(store.calculeazaMarjaProfit(item)) }}
+              </span>
             </div>
           </div>
 
@@ -442,11 +456,11 @@ function formatCurrency(val: number): string {
             </div>
             <div v-if="item.adaosComercial > 0" style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem;">
               <span style="color: #f59e0b;">Adaos comercial <span style="opacity: 0.7;">({{ item.tipAdaos === 'procentual' ? item.adaosComercial + '%' : 'fix' }})</span></span>
-              <span style="color: #f59e0b;">{{ formatCurrency(store.calculeazaAdaos(item, item.pretManopera)) }}</span>
+              <span style="color: #f59e0b;">{{ formatCurrency(store.calculeazaAdaosRaw(item.adaosComercial, item.tipAdaos, item.pretManopera)) }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px dashed var(--border-color);">
               <span style="font-weight: 600; color: var(--text-muted);">Preț Final</span>
-              <span style="font-size: 1.1rem; font-weight: 700; color: #f59e0b;">{{ formatCurrency(store.calculeazaPretProdus(item)) }}</span>
+              <span style="font-size: 1.1rem; font-weight: 700; color: #f59e0b;">{{ formatCurrency(store.getPretProdus(item)) }}</span>
             </div>
           </div>
         </div>
@@ -492,7 +506,7 @@ function formatCurrency(val: number): string {
             <select v-model="form.produsParinteId" class="form-select">
               <option value="">— Niciun produs de bază (produs independent) —</option>
               <option v-for="p in getAvailableParents()" :key="p.id" :value="p.id">
-                {{ p.denumire }} — {{ formatCurrency(store.calculeazaPretProdus(p)) }}
+                {{ p.denumire }} — {{ formatCurrency(store.getPretProdus(p)) }}
               </option>
             </select>
             <div v-if="form.produsParinteId" style="margin-top: 8px; padding: 12px; background: rgba(139, 92, 246, 0.06); border: 1px solid rgba(139, 92, 246, 0.15); border-radius: var(--radius-md);">
@@ -588,6 +602,29 @@ function formatCurrency(val: number): string {
               <span style="font-weight: 600; color: var(--text-secondary);">{{ isServiceForm ? 'Preț Serviciu' : 'Preț Total' }}</span>
               <span style="font-size: 1.3rem; font-weight: 700; color: var(--text-accent);">{{ formatCurrency(calcPretTotal()) }}</span>
             </div>
+            <!-- Recalculare indicator for editing -->
+            <div v-if="editingId && form.pretFinal > 0 && Math.abs(form.pretFinal - calcPretTotal()) > 0.01"
+              style="margin-top: 10px; padding: 10px 14px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: var(--radius-md); font-size: 0.82rem;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #f59e0b; font-weight: 600;">
+                <span class="material-icons-outlined" style="font-size: 16px;">info</span>
+                Prețul materialelor s-a modificat
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span style="color: var(--text-muted);">Preț actual (îngheṭat):</span>
+                <span>{{ formatCurrency(form.pretFinal) }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-muted);">Preț recalculat:</span>
+                <strong>{{ formatCurrency(calcPretTotal()) }}</strong>
+              </div>
+            </div>
+          </div>
+          <!-- Recalculare button -->
+          <div v-if="editingId" style="margin-top: 12px;">
+            <button type="button" class="btn btn-secondary" @click="recalculeazaPretProdus" style="width: 100%; justify-content: center; gap: 6px; border: 1px dashed var(--border-color);">
+              <span class="material-icons-outlined" style="font-size: 18px;">refresh</span>
+              Recalculare Preț (actualizare prețuri materiale curente)
+            </button>
           </div>
         </div>
         <div class="modal-footer">

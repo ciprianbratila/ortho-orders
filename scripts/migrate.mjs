@@ -65,6 +65,7 @@ const SQL_FILES = [
     '004_istoric_stoc.sql',
     '005_valoare_stoc.sql',
     '006_adaos_comercial.sql',
+    '007_pret_final.sql',
 ]
 
 async function runMigrations() {

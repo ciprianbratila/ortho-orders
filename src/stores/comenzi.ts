@@ -93,7 +93,7 @@ export const useComenziStore = defineStore('comenzi', () => {
         for (const pc of comanda.produse) {
             const produs = produseStore.getById(pc.produsId)
             if (produs) {
-                total += produseStore.calculeazaPretProdus(produs) * pc.cantitate
+                total += produseStore.getPretProdus(produs) * pc.cantitate
             }
         }
         return total

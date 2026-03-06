@@ -379,7 +379,7 @@ function openInvoiceModal(comanda: Comanda) {
   }
   invoiceLinii.value = comanda.produse.map(p => {
     const produs = produseStore.getById(p.produsId)
-    const pretUnitar = produs ? produseStore.calculeazaPretProdus(produs) : 0
+    const pretUnitar = produs ? produseStore.getPretProdus(produs) : 0
     return {
       denumire: produs?.denumire || 'Produs necunoscut',
       cantitate: p.cantitate,
@@ -734,12 +734,12 @@ function saveInvoice() {
                   <option value="" disabled>— Selectează produs / serviciu —</option>
                   <optgroup v-if="produseStore.produse.length > 0" label="📦 PRODUSE">
                     <option v-for="p in produseStore.produse" :key="p.id" :value="p.id">
-                      {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})
+                      {{ p.denumire }} ({{ formatCurrency(produseStore.getPretProdus(p)) }})
                     </option>
                   </optgroup>
                   <optgroup v-if="produseStore.servicii.length > 0" label="🔧 SERVICII">
                     <option v-for="p in produseStore.servicii" :key="p.id" :value="p.id">
-                      {{ p.denumire }} ({{ formatCurrency(produseStore.calculeazaPretProdus(p)) }})
+                      {{ p.denumire }} ({{ formatCurrency(produseStore.getPretProdus(p)) }})
                     </option>
                   </optgroup>
                 </select>

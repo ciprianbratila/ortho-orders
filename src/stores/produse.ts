@@ -18,6 +18,7 @@ function mapRow(row: any): Produs {
         pretManopera: Number(row.pret_manopera),
         adaosComercial: Number(row.adaos_comercial || 0),
         tipAdaos: (row.tip_adaos || 'valoric') as TipAdaos,
+        pretFinal: Number(row.pret_final || 0),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }
@@ -39,6 +40,24 @@ export const useProduseStore = defineStore('produse', () => {
         if (error) { console.error('Eroare produse:', error); return }
         items.value = (data || []).map(mapRow)
         loaded.value = true
+
+        // Auto-initialize pretFinal for existing products that don't have it set
+        await initializePretFinal()
+    }
+
+    async function initializePretFinal() {
+        const toInit = items.value.filter(p => p.pretFinal <= 0)
+        if (toInit.length === 0) return
+        console.log(`Inițializez pretFinal pentru ${toInit.length} produse...`)
+        for (const produs of toInit) {
+            const pretCalculat = calculeazaPretDinamic(produs)
+            produs.pretFinal = pretCalculat
+            await supabase.from('produse').update({
+                pret_final: pretCalculat,
+                updated_at: new Date().toISOString(),
+            }).eq('id', produs.id)
+        }
+        console.log('pretFinal inițializat cu succes!')
     }
 
     function getById(id: string): Produs | undefined {
@@ -64,6 +83,7 @@ export const useProduseStore = defineStore('produse', () => {
         return componente
     }
 
+    // ============ Adaos Comercial ============
     function calculeazaAdaos(produs: Produs, costBaza: number): number {
         if (produs.adaosComercial <= 0) return 0
         if (produs.tipAdaos === 'procentual') {
@@ -72,7 +92,17 @@ export const useProduseStore = defineStore('produse', () => {
         return produs.adaosComercial
     }
 
-    function calculeazaPretProdus(produs: Produs): number {
+    // Same logic but with raw form values (for preview in modal)
+    function calculeazaAdaosRaw(adaosComercial: number, tipAdaos: string, costBaza: number): number {
+        if (adaosComercial <= 0) return 0
+        if (tipAdaos === 'procentual') {
+            return costBaza * (adaosComercial / 100)
+        }
+        return adaosComercial
+    }
+
+    // ============ Dynamic price calculation (used during editing) ============
+    function calculeazaPretDinamic(produs: Produs): number {
         const materiiStore = useMateriiPrimeStore()
         const toateComp = getToateComponentele(produs)
         let pretComponente = 0
@@ -91,6 +121,35 @@ export const useProduseStore = defineStore('produse', () => {
         }
         const costBaza = pretComponente + pretManopera
         return costBaza + calculeazaAdaos(produs, costBaza)
+    }
+
+    // ============ Frozen price (used for display and orders) ============
+    // Returns pretFinal if set, otherwise falls back to dynamic calculation
+    function getPretProdus(produs: Produs): number {
+        if (produs.pretFinal > 0) return produs.pretFinal
+        // Fallback for old products without pretFinal
+        return calculeazaPretDinamic(produs)
+    }
+
+    // ============ Cost curent materii prime (dynamic, for margin calc) ============
+    function calculeazaCostCurentMateriale(produs: Produs): number {
+        const materiiStore = useMateriiPrimeStore()
+        const toateComp = getToateComponentele(produs)
+        let total = 0
+        for (const comp of toateComp) {
+            const materie = materiiStore.getById(comp.materiePrimaId)
+            if (materie) {
+                total += materiiStore.getPretMediu(materie) * comp.cantitate
+            }
+        }
+        return total
+    }
+
+    // ============ Marja profit ============
+    function calculeazaMarjaProfit(produs: Produs): number {
+        const pretFinal = getPretProdus(produs)
+        const costMateriale = calculeazaCostCurentMateriale(produs)
+        return pretFinal - costMateriale
     }
 
     function calculeazaManoperaTotala(produs: Produs): number {
@@ -161,6 +220,10 @@ export const useProduseStore = defineStore('produse', () => {
     }
 
     async function add(item: Omit<Produs, 'id' | 'createdAt' | 'updatedAt'>) {
+        // Calculate pretFinal at save time
+        const tempProdus = { ...item, id: '', createdAt: '', updatedAt: '' } as Produs
+        const pretFinal = item.pretFinal > 0 ? item.pretFinal : calculeazaPretDinamic(tempProdus)
+
         const { data, error } = await supabase
             .from('produse')
             .insert({
@@ -171,6 +234,7 @@ export const useProduseStore = defineStore('produse', () => {
                 pret_manopera: item.pretManopera,
                 adaos_comercial: item.adaosComercial || 0,
                 tip_adaos: item.tipAdaos || 'valoric',
+                pret_final: pretFinal,
             })
             .select()
             .single()
@@ -189,6 +253,7 @@ export const useProduseStore = defineStore('produse', () => {
         const newItem: Produs = {
             ...item,
             id: data.id,
+            pretFinal,
             createdAt: data.created_at,
             updatedAt: data.updated_at,
         }
@@ -204,6 +269,7 @@ export const useProduseStore = defineStore('produse', () => {
         if (data.pretManopera !== undefined) updateData.pret_manopera = data.pretManopera
         if (data.adaosComercial !== undefined) updateData.adaos_comercial = data.adaosComercial
         if (data.tipAdaos !== undefined) updateData.tip_adaos = data.tipAdaos
+        if (data.pretFinal !== undefined) updateData.pret_final = data.pretFinal
 
         const { error } = await supabase.from('produse').update(updateData).eq('id', id)
         if (error) { console.error('Eroare actualizare produs:', error); return }
@@ -227,6 +293,22 @@ export const useProduseStore = defineStore('produse', () => {
         }
     }
 
+    // ============ Recalculare preț ============
+    async function recalculeazaPret(id: string): Promise<number> {
+        const produs = getById(id)
+        if (!produs) return 0
+        const pretNou = calculeazaPretDinamic(produs)
+        await supabase.from('produse').update({
+            pret_final: pretNou,
+            updated_at: new Date().toISOString(),
+        }).eq('id', id)
+        const index = items.value.findIndex(i => i.id === id)
+        if (index !== -1) {
+            items.value[index] = { ...items.value[index], pretFinal: pretNou, updatedAt: new Date().toISOString() }
+        }
+        return pretNou
+    }
+
     async function remove(id: string) {
         const { error } = await supabase.from('produse').delete().eq('id', id)
         if (error) { console.error('Eroare ștergere produs:', error); return }
@@ -241,8 +323,12 @@ export const useProduseStore = defineStore('produse', () => {
         servicii,
         getById,
         getToateComponentele,
-        calculeazaPretProdus,
+        calculeazaPretDinamic,
+        getPretProdus,
+        calculeazaCostCurentMateriale,
+        calculeazaMarjaProfit,
         calculeazaAdaos,
+        calculeazaAdaosRaw,
         calculeazaPretComponenteProprii,
         calculeazaManoperaTotala,
         verificaDuplicat,
@@ -250,6 +336,7 @@ export const useProduseStore = defineStore('produse', () => {
         fetchAll,
         add,
         update,
+        recalculeazaPret,
         remove
     }
 })
