@@ -8,6 +8,7 @@ import { useAngajatiStore } from '../stores/angajati'
 import { useFacturiStore } from '../stores/facturi'
 import { useToastStore } from '../stores/toast'
 import type { Comanda, ProdusComanda, StatusComanda, MetodaPlata, DecizieCAS, LinieFactura, DateClientFactura } from '../types'
+import { useCNASStore } from '../stores/cnas'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,7 @@ const clientiStore = useClientiStore()
 const produseStore = useProduseStore()
 const angajatiStore = useAngajatiStore()
 const facturiStore = useFacturiStore()
+const cnasStore = useCNASStore()
 const toast = useToastStore()
 
 const searchQuery = ref('')
@@ -60,7 +62,7 @@ const statusLabels: Record<string, string> = {
 const metodaPlataOptions: { value: MetodaPlata; label: string; icon: string }[] = [
   { value: 'cash', label: 'Cash', icon: 'payments' },
   { value: 'card', label: 'Card', icon: 'credit_card' },
-  { value: 'decizie_cas', label: 'Decizie CAS', icon: 'description' },
+  { value: 'transfer', label: 'Transfer', icon: 'account_balance' },
 ]
 
 const metodaPlataLabels: Record<string, string> = {
@@ -136,7 +138,13 @@ function getTehnicianName(id?: string): string {
 }
 
 function getValoareCAS(comanda: Comanda): number {
-  return comanda.decizieCAS?.valoare || 0
+  // Sum of all per-product CNAS decision values
+  const cnasTotal = comanda.produse
+    .filter(p => p.decizieCNAS)
+    .reduce((sum, p) => sum + (p.decizieCNAS?.valoare || 0), 0)
+  // Legacy order-level decision
+  const legacy = comanda.decizieCAS?.valoare || 0
+  return cnasTotal + legacy
 }
 
 function getRestPlata(comanda: Comanda): number {
@@ -201,6 +209,7 @@ function addProdus() {
     produsId: '',
     cantitate: 1,
     observatii: '',
+    decizieCNAS: undefined,
   })
 }
 
@@ -209,18 +218,12 @@ function removeProdus(index: number) {
 }
 
 function onMetodaPlataChange() {
-  if (form.value.metodaPlata === 'decizie_cas' && !form.value.decizieCAS) {
-    form.value.decizieCAS = {
-      numarDocument: '',
-      dataDocument: new Date().toISOString().split('T')[0],
-      valoare: 0,
-    }
-  } else if (form.value.metodaPlata !== 'decizie_cas') {
+  if (form.value.metodaPlata !== 'decizie_cas') {
     form.value.decizieCAS = null
   }
 }
 
-async function handleFileUpload(event: Event) {
+function handleProductFileUpload(event: Event, pc: any) {
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
@@ -232,19 +235,62 @@ async function handleFileUpload(event: Event) {
 
   const reader = new FileReader()
   reader.onload = () => {
-    if (form.value.decizieCAS) {
-      form.value.decizieCAS.numeDocument = file.name
-      form.value.decizieCAS.fisierBase64 = reader.result as string
+    if (pc.decizieCNAS) {
+      pc.decizieCNAS.numeDocument = file.name
+      pc.decizieCNAS.fisierBase64 = reader.result as string
     }
   }
   reader.readAsDataURL(file)
-  toast.success(`Fișier "${file.name}" atașat cu succes!`)
+  toast.success(`Fișier "${file.name}" atașat deciziei!`)
 }
 
-function removeFile() {
-  if (form.value.decizieCAS) {
-    form.value.decizieCAS.numeDocument = undefined
-    form.value.decizieCAS.fisierBase64 = undefined
+function removeProductFile(pc: any) {
+  if (pc.decizieCNAS) {
+    pc.decizieCNAS.numeDocument = undefined
+    pc.decizieCNAS.fisierBase64 = undefined
+  }
+}
+
+// === Creare Directa Comanda CNAS ===
+const directCNASModal = ref(false)
+const directCNASForm = ref({
+  comandaId: '',
+  comandaProdusId: '',
+  produseCNAS: [{ produsCNASId: '', cantitate: 1 }] as { produsCNASId: string; cantitate: number }[],
+})
+
+function hasCNASOrder(comandaProdusId?: string): boolean {
+  if (!comandaProdusId) return false
+  return !!cnasStore.getComandaByProdusId(comandaProdusId)
+}
+
+function openDirectCNASCreate(comandaId: string | undefined, comandaProdusId: string | undefined) {
+  if (!comandaId || !comandaProdusId) {
+    toast.warning('Comanda trebuie salvată mai întâi pentru a crea comandă CNAS direct!')
+    return
+  }
+  directCNASForm.value = {
+    comandaId: comandaId,
+    comandaProdusId: comandaProdusId,
+    produseCNAS: [{ produsCNASId: '', cantitate: 1 }]
+  }
+  directCNASModal.value = true
+}
+
+async function submitDirectCNAS() {
+  if (directCNASForm.value.produseCNAS.some(p => !p.produsCNASId)) {
+    toast.error('Selectați produsul din nomenclatorul CNAS!')
+    return
+  }
+  const result = await cnasStore.addComanda({
+    comandaId: directCNASForm.value.comandaId,
+    comandaProdusId: directCNASForm.value.comandaProdusId,
+    produseCNAS: directCNASForm.value.produseCNAS,
+    observatii: ''
+  })
+  if (result) {
+    toast.success('Comandă CNAS creată cu succes!')
+    directCNASModal.value = false
   }
 }
 
@@ -253,7 +299,12 @@ function calcTotal(): number {
 }
 
 function calcFormCASValue(): number {
-  return form.value.decizieCAS?.valoare || 0
+  // Sum per-product CNAS values + legacy
+  const cnasTotal = form.value.produse
+    .filter(p => p.decizieCNAS)
+    .reduce((sum, p) => sum + (p.decizieCNAS?.valoare || 0), 0)
+  const legacy = form.value.decizieCAS?.valoare || 0
+  return cnasTotal + legacy
 }
 
 function calcFormRestPlata(): number {
@@ -268,16 +319,6 @@ function save() {
   if (form.value.produse.length === 0) {
     toast.error('Adăugați cel puțin un produs!')
     return
-  }
-  if (form.value.metodaPlata === 'decizie_cas') {
-    if (!form.value.decizieCAS?.numarDocument) {
-      toast.error('Introduceți numărul documentului Decizie CAS!')
-      return
-    }
-    if (!form.value.decizieCAS?.valoare || form.value.decizieCAS.valoare <= 0) {
-      toast.error('Introduceți valoarea din Decizia CAS!')
-      return
-    }
   }
 
   const total = calcTotal()
@@ -749,6 +790,90 @@ function saveInvoice() {
                 </button>
               </div>
               <input v-model="pc.observatii" class="form-input" type="text" :placeholder="getProdusTip(pc.produsId) === 'serviciu' ? 'Detalii serviciu (opțional)...' : 'Observații produs (opțional)...'" style="margin-top: 8px;" />
+
+              <!-- CNAS Decision per Product -->
+              <div style="margin-top: 8px;">
+                <button
+                  v-if="!pc.decizieCNAS"
+                  class="btn btn-sm"
+                  style="padding: 4px 12px; font-size: 0.76rem; border: 1px dashed rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.06); color: #a78bfa; border-radius: 6px;"
+                  @click="pc.decizieCNAS = { numarDocument: '', dataDocument: new Date().toISOString().split('T')[0], valoare: cnasStore.valoareDecontare }; pc._isCnasExpanded = true"
+                >
+                  <span class="material-icons-outlined" style="font-size: 14px;">health_and_safety</span>
+                  Atașează Decizie CNAS
+                </button>
+                <div v-else style="border: 1px solid rgba(139, 92, 246, 0.25); border-radius: var(--radius-md); padding: 12px; background: rgba(139, 92, 246, 0.04);">
+                  <div 
+                    style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; cursor: pointer; user-select: none;"
+                    @click="pc._isCnasExpanded = !pc._isCnasExpanded"
+                  >
+                    <span style="font-size: 0.75rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+                      <span class="material-icons-outlined" style="font-size: 14px;">health_and_safety</span>
+                      Decizie CNAS: {{ pc.decizieCNAS.numarDocument || 'Document necompletat' }}
+                      <span v-if="!pc._isCnasExpanded" style="font-size: 0.7rem; opacity: 0.8; margin-left: 6px;">(Apasă pentru detalii)</span>
+                    </span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                      <span class="material-icons-outlined" style="color: var(--text-muted); font-size: 20px;">
+                        {{ pc._isCnasExpanded ? 'expand_less' : 'expand_more' }}
+                      </span>
+                      <button class="btn btn-ghost btn-icon btn-sm" @click.stop="pc.decizieCNAS = undefined" title="Elimină decizie" style="color: var(--error);">
+                        <span class="material-icons-outlined" style="font-size: 16px;">close</span>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div v-show="pc._isCnasExpanded" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(139, 92, 246, 0.2);">
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label class="form-label" style="font-size: 0.72rem;">Nr. Decizie *</label>
+                        <input v-model="pc.decizieCNAS.numarDocument" class="form-input" type="text" placeholder="ex: CNAS-2026-001" style="font-size: 0.82rem;" />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label" style="font-size: 0.72rem;">Data</label>
+                        <input v-model="pc.decizieCNAS.dataDocument" class="form-input" type="date" style="font-size: 0.82rem;" />
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" style="font-size: 0.72rem;">Valoare Decontare (RON)</label>
+                      <input :value="cnasStore.valoareDecontare" class="form-input" type="number" readonly style="font-size: 0.82rem; background: var(--bg-primary); opacity: 0.8;" />
+                      <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 3px;">
+                        Valoarea deciziei este fixă și se preia automat din setările globale CNAS ({{ formatCurrency(cnasStore.valoareDecontare) }}).
+                      </div>
+                    </div>
+
+                    <!-- File Upload directly on Product line -->
+                    <div class="form-group">
+                      <label class="form-label" style="font-size: 0.72rem;">Atașează Document Decizie</label>
+                      <div v-if="!pc.decizieCNAS.numeDocument" style="border: 1px dashed rgba(139, 92, 246, 0.4); border-radius: var(--radius-sm); padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: rgba(139, 92, 246, 0.05);" @click="($refs['fileInput_' + idx] as HTMLInputElement[])[0]?.click()">
+                        <span class="material-icons-outlined" style="font-size: 20px; color: #a78bfa; display: block; margin-bottom: 2px;">cloud_upload</span>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">Click pentru a încărca document</div>
+                      </div>
+                      <div v-else style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: rgba(30, 41, 59, 0.4); border-radius: var(--radius-sm); border: 1px solid rgba(139, 92, 246, 0.2);">
+                        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                          <span class="material-icons-outlined" style="font-size: 18px; color: #a78bfa;">attach_file</span>
+                          <span style="font-size: 0.75rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ pc.decizieCNAS.numeDocument }}</span>
+                        </div>
+                        <button class="btn btn-ghost btn-icon btn-sm" @click.stop="removeProductFile(pc)" title="Șterge fișier" style="color: var(--error);">
+                          <span class="material-icons-outlined" style="font-size: 16px;">delete</span>
+                        </button>
+                      </div>
+                      <input :ref="'fileInput_' + idx" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display: none;" @change="handleProductFileUpload($event, pc)" />
+                    </div>
+
+                    <!-- Buton comanda CNAS daca e pe pagina edit existenta -->
+                    <div v-if="editingId && pc.id && !hasCNASOrder(pc.id)" style="margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(139, 92, 246, 0.2); text-align: right;">
+                      <button class="btn btn-primary btn-sm" @click.prevent="openDirectCNASCreate(editingId, pc.id)">
+                        <span class="material-icons-outlined" style="font-size: 16px;">rocket_launch</span>
+                        Creează Comandă CNAS
+                      </button>
+                    </div>
+                    <div v-else-if="editingId && pc.id && hasCNASOrder(pc.id)" style="margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(139, 92, 246, 0.2); text-align: right; font-size: 0.75rem; color: #10b981; display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                      <span class="material-icons-outlined" style="font-size: 16px;">check_circle</span>
+                      Decizia este deja inclusă într-o comandă CNAS
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -783,49 +908,16 @@ function saveInvoice() {
               <input v-model.number="form.avans" class="form-input" type="number" min="0" step="0.01" placeholder="0.00" />
             </div>
 
-            <!-- Decizie CAS Section -->
+            <!-- Decizie CAS Legacy Section (hidden for new edits) -->
             <div v-if="form.metodaPlata === 'decizie_cas' && form.decizieCAS" style="border: 1px solid rgba(139, 92, 246, 0.3); border-radius: var(--radius-md); padding: 16px; background: rgba(139, 92, 246, 0.06);">
               <div style="font-size: 0.78rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
                 <span class="material-icons-outlined" style="font-size: 16px;">description</span>
-                Decizie CAS
+                Decizie CAS (Vechi)
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Nr. Document Decizie *</label>
-                  <input v-model="form.decizieCAS.numarDocument" class="form-input" type="text" placeholder="ex: CAS-2026-001234" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Data Document</label>
-                  <input v-model="form.decizieCAS.dataDocument" class="form-input" type="date" />
-                </div>
-              </div>
+              <p style="font-size: 0.8rem; color: var(--warning);">Acest sistem vechi a fost înlocuit. Deciziile noi se trec pe produs.</p>
               <div class="form-group">
-                <label class="form-label">Valoare Acoperită de CAS (RON) *</label>
-                <input v-model.number="form.decizieCAS.valoare" class="form-input" type="number" min="0" step="0.01" placeholder="Suma din decizia CAS..." />
-                <div v-if="form.decizieCAS.valoare > calcTotal()" style="margin-top: 6px; font-size: 0.78rem; color: var(--warning);">
-                  ⚠ Valoarea CAS depășește totalul comenzii
-                </div>
-              </div>
-
-              <!-- File Upload -->
-              <div class="form-group">
-                <label class="form-label">Atașează Document Decizie</label>
-                <div v-if="!form.decizieCAS.numeDocument" style="border: 2px dashed rgba(139, 92, 246, 0.3); border-radius: var(--radius-md); padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s ease;" @click="($refs.fileInput as HTMLInputElement)?.click()">
-                  <span class="material-icons-outlined" style="font-size: 32px; color: #a78bfa; display: block; margin-bottom: 6px;">cloud_upload</span>
-                  <div style="font-size: 0.85rem; color: var(--text-secondary);">Click pentru a încărca document</div>
-                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">PDF, JPG, PNG — max 10MB</div>
-                </div>
-                <div v-else style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-tertiary); border-radius: var(--radius-md);">
-                  <span class="material-icons-outlined" style="font-size: 24px; color: #a78bfa;">attach_file</span>
-                  <div style="flex: 1;">
-                    <div style="font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">{{ form.decizieCAS.numeDocument }}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted);">Document atașat</div>
-                  </div>
-                  <button class="btn btn-ghost btn-icon btn-sm" @click="removeFile" title="Șterge fișier" style="color: var(--error);">
-                    <span class="material-icons-outlined">delete</span>
-                  </button>
-                </div>
-                <input ref="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display: none;" @change="handleFileUpload" />
+                  <label class="form-label">Valoare Acoperită de CAS (RON) *</label>
+                  <input v-model.number="form.decizieCAS.valoare" class="form-input" type="number" min="0" step="0.01" />
               </div>
             </div>
           </div>
@@ -941,13 +1033,56 @@ function saveInvoice() {
           <!-- Produse -->
           <div style="margin-bottom: 20px;">
             <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px;">Produse</div>
-            <div v-for="(pc, idx) in selectedOrder.produse" :key="idx" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 6px;">
-              <div>
-                <div style="font-weight: 500;">{{ getProdusName(pc.produsId) }}</div>
-                <div v-if="pc.observatii" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">{{ pc.observatii }}</div>
+            <div v-for="(pc, idx) in selectedOrder.produse" :key="idx" style="padding: 10px 14px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div style="font-weight: 500;">{{ getProdusName(pc.produsId) }}</div>
+                  <div v-if="pc.observatii" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">{{ pc.observatii }}</div>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 0.82rem; color: var(--text-muted);">x{{ pc.cantitate }}</div>
+                </div>
               </div>
-              <div style="text-align: right;">
-                <div style="font-size: 0.82rem; color: var(--text-muted);">x{{ pc.cantitate }}</div>
+              <!-- Per-product CNAS decision in detail view -->
+              <div v-if="pc.decizieCNAS" style="margin-top: 8px; padding: 10px; border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 6px; background: rgba(139, 92, 246, 0.04);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <span style="font-size: 0.72rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; display: flex; align-items: center; gap: 6px;">
+                    <span class="material-icons-outlined" style="font-size: 14px; color: #a78bfa;">health_and_safety</span>
+                    Decizia CNAS
+                  </span>
+                  
+                  <!-- Butoane comanda existenta -->
+                  <div v-if="pc.id && !hasCNASOrder(pc.id)">
+                    <button class="btn btn-primary btn-sm" style="padding: 2px 10px; font-size: 0.7rem; height: 24px; line-height: 20px;" @click.prevent="openDirectCNASCreate(selectedOrder!.id, pc.id)">
+                      Creează Cmd. CNAS
+                    </button>
+                  </div>
+                  <div v-else-if="pc.id && hasCNASOrder(pc.id)" style="font-size: 0.72rem; color: #10b981; display: flex; align-items: center; gap: 4px; font-weight: 500;">
+                    <span class="material-icons-outlined" style="font-size: 14px;">check_circle</span> Inclusă în cmd. CNAS
+                  </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 0.82rem;">
+                  <div>
+                    <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Nr. Decizie</div>
+                    <div style="font-weight: 500; color: #a78bfa;">{{ pc.decizieCNAS.numarDocument }}</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Data</div>
+                    <div>{{ formatDate(pc.decizieCNAS.dataDocument) }}</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Valoare</div>
+                    <div style="font-weight: 600; color: #a78bfa;">{{ formatCurrency(pc.decizieCNAS.valoare) }}</div>
+                  </div>
+                  
+                  <div v-if="pc.decizieCNAS.numeDocument" style="grid-column: span 3; margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(139, 92, 246, 0.2);">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="material-icons-outlined" style="font-size: 16px; color: #a78bfa;">attach_file</span>
+                      <span style="font-size: 0.8rem;">{{ pc.decizieCNAS.numeDocument }}</span>
+                      <a :href="pc.decizieCNAS.fisierBase64" :download="pc.decizieCNAS.numeDocument" v-if="pc.decizieCNAS.fisierBase64" class="btn btn-ghost btn-sm" style="margin-left: auto; padding: 2px 8px; font-size: 0.7rem;">Descarcă</a>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1192,6 +1327,35 @@ function saveInvoice() {
             <span class="material-icons-outlined">receipt_long</span>
             Emite Factură
           </button>
+        </div>
+      </div>
+    </div>
+    <!-- ========== Modal Comanda CNAS Rapida ========== -->
+    <div v-if="directCNASModal" class="modal-overlay" @click.self="directCNASModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Creează Comandă CNAS direct</h3>
+          <button class="btn btn-ghost btn-icon" @click="directCNASModal = false">
+            <span class="material-icons-outlined">close</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+            Alegeți ce produs CNAS corespunde acestei linii de comandă din nomenclator:
+          </p>
+          <div v-for="(pc, idx) in directCNASForm.produseCNAS" :key="idx" style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
+            <select v-model="pc.produsCNASId" class="form-select" style="flex: 3;">
+              <option value="" disabled>— Selectați produs nomenclator —</option>
+              <option v-for="p in cnasStore.produse" :key="p.id" :value="p.id">
+                {{ p.denumire }} {{ p.cod ? `(${p.cod})` : '' }}
+              </option>
+            </select>
+            <input v-model.number="pc.cantitate" class="form-input" type="number" min="1" style="flex: 0 0 80px;" placeholder="Cant." />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="directCNASModal = false">Anulează</button>
+          <button class="btn btn-primary" @click="submitDirectCNAS">Creează</button>
         </div>
       </div>
     </div>

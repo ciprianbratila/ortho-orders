@@ -18,6 +18,7 @@ const allModules: { value: ModulAcces; label: string; icon: string }[] = [
   { value: 'angajati', label: 'Angajați', icon: 'badge' },
   { value: 'produse', label: 'Produse', icon: 'category' },
   { value: 'materii-prime', label: 'Materii Prime', icon: 'inventory_2' },
+  { value: 'cnas', label: 'CNAS', icon: 'health_and_safety' },
   { value: 'admin', label: 'Administrare', icon: 'admin_panel_settings' },
 ]
 

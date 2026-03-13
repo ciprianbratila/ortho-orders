@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Comanda, StatusComanda, DecizieCAS } from '../types'
+import type { Comanda, StatusComanda, DecizieCAS, DecizieCNASProdus } from '../types'
 import { useProduseStore } from './produse'
 import { supabase } from '../lib/supabase'
 
@@ -22,9 +22,17 @@ function mapRow(row: any): Comanda {
         clientId: row.client_id,
         tehnicianId: row.tehnician_id || undefined,
         produse: (row.comenzi_produse || []).map((p: any) => ({
+            id: p.id,
             produsId: p.produs_id,
             cantitate: Number(p.cantitate),
             observatii: p.observatii || '',
+            decizieCNAS: p.decizie_cnas_numar ? {
+                numarDocument: p.decizie_cnas_numar,
+                dataDocument: p.decizie_cnas_data || '',
+                valoare: Number(p.decizie_cnas_valoare) || 0,
+                numeDocument: p.decizie_cnas_nume_document,
+                fisierBase64: p.decizie_cnas_fisier_base64,
+            } as DecizieCNASProdus : undefined,
         })),
         status: row.status as StatusComanda,
         metodaPlata: row.metoda_plata,
@@ -131,13 +139,29 @@ export const useComenziStore = defineStore('comenzi', () => {
 
         // Insert products
         if (item.produse.length > 0) {
-            const prods = item.produse.map(p => ({
-                comanda_id: data.id,
-                produs_id: p.produsId,
-                cantitate: p.cantitate,
-                observatii: p.observatii,
-            }))
-            await supabase.from('comenzi_produse').insert(prods)
+            const prods = item.produse.map(p => {
+                const row: any = {
+                    comanda_id: data.id,
+                    produs_id: p.produsId,
+                    cantitate: p.cantitate,
+                    observatii: p.observatii,
+                }
+                if (p.decizieCNAS) {
+                    row.decizie_cnas_numar = p.decizieCNAS.numarDocument
+                    row.decizie_cnas_data = p.decizieCNAS.dataDocument
+                    row.decizie_cnas_valoare = p.decizieCNAS.valoare
+                    row.decizie_cnas_nume_document = p.decizieCNAS.numeDocument
+                    row.decizie_cnas_fisier_base64 = p.decizieCNAS.fisierBase64
+                }
+                return row
+            })
+            const { data: insertedProds } = await supabase.from('comenzi_produse').insert(prods).select()
+            // Attach IDs back to the products
+            if (insertedProds) {
+                for (let i = 0; i < item.produse.length && i < insertedProds.length; i++) {
+                    item.produse[i].id = insertedProds[i].id
+                }
+            }
         }
 
         const newItem: Comanda = {
@@ -226,13 +250,28 @@ export const useComenziStore = defineStore('comenzi', () => {
             // Re-insert products
             await supabase.from('comenzi_produse').delete().eq('comanda_id', id)
             if (data.produse.length > 0) {
-                const prods = data.produse.map(p => ({
-                    comanda_id: id,
-                    produs_id: p.produsId,
-                    cantitate: p.cantitate,
-                    observatii: p.observatii,
-                }))
-                await supabase.from('comenzi_produse').insert(prods)
+                const prods = data.produse.map(p => {
+                    const row: any = {
+                        comanda_id: id,
+                        produs_id: p.produsId,
+                        cantitate: p.cantitate,
+                        observatii: p.observatii,
+                    }
+                    if (p.decizieCNAS) {
+                        row.decizie_cnas_numar = p.decizieCNAS.numarDocument
+                        row.decizie_cnas_data = p.decizieCNAS.dataDocument
+                        row.decizie_cnas_valoare = p.decizieCNAS.valoare
+                        row.decizie_cnas_nume_document = p.decizieCNAS.numeDocument
+                        row.decizie_cnas_fisier_base64 = p.decizieCNAS.fisierBase64
+                    }
+                    return row
+                })
+                const { data: insertedProds } = await supabase.from('comenzi_produse').insert(prods).select()
+                if (insertedProds) {
+                    for (let i = 0; i < data.produse.length && i < insertedProds.length; i++) {
+                        data.produse[i].id = insertedProds[i].id
+                    }
+                }
             }
         }
 

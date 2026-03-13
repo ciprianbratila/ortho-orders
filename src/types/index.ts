@@ -92,12 +92,23 @@ export interface Angajat {
 
 // ============ Comenzi ============
 export type StatusComanda = 'noua' | 'in_lucru' | 'finalizata' | 'livrata' | 'anulata'
-export type MetodaPlata = 'cash' | 'card' | 'decizie_cas'
+export type MetodaPlata = 'cash' | 'card' | 'transfer' | 'decizie_cas'
+
+export interface DecizieCNASProdus {
+    numarDocument: string
+    dataDocument: string
+    valoare: number
+    numeDocument?: string
+    fisierBase64?: string
+}
 
 export interface ProdusComanda {
+    id?: string // UUID from comenzi_produse table (set after save)
     produsId: string
     cantitate: number
     observatii: string
+    decizieCNAS?: DecizieCNASProdus
+    _isCnasExpanded?: boolean
 }
 
 export interface DecizieCAS {
@@ -169,8 +180,43 @@ export interface Factura {
     updatedAt: string
 }
 
+// ============ CNAS ============
+export interface ProdusCNAS {
+    id: string
+    denumire: string
+    cod: string
+    descriere: string
+    createdAt: string
+    updatedAt: string
+}
+
+export interface SetariCNAS {
+    id: string
+    valoareDecontare: number
+    updatedAt: string
+}
+
+export type StatusComandaCNAS = 'noua' | 'trimisa' | 'aprobata' | 'respinsa'
+
+export interface ProdusCNASComanda {
+    produsCNASId: string
+    cantitate: number
+}
+
+export interface ComandaCNAS {
+    id: string
+    comandaId: string
+    comandaProdusId: string
+    numarComandaCNAS: string
+    produseCNAS: ProdusCNASComanda[]
+    status: StatusComandaCNAS
+    observatii: string
+    createdAt: string
+    updatedAt: string
+}
+
 // ============ Administrare / Permisiuni ============
-export type ModulAcces = 'dashboard' | 'comenzi' | 'facturi' | 'clienti' | 'angajati' | 'produse' | 'materii-prime' | 'admin'
+export type ModulAcces = 'dashboard' | 'comenzi' | 'facturi' | 'clienti' | 'angajati' | 'produse' | 'materii-prime' | 'cnas' | 'admin'
 
 export interface GrupUtilizatori {
     id: string

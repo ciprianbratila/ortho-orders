@@ -212,7 +212,7 @@ CREATE POLICY "Allow all" ON counters FOR ALL USING (true) WITH CHECK (true);
 
 -- Grupuri
 INSERT INTO grupuri (id, denumire, descriere, module_acces) VALUES
-('00000000-0000-0000-0000-000000000001', 'Administratori', 'Acces complet la toate modulele aplicației, inclusiv administrare', ARRAY['dashboard','comenzi','facturi','clienti','angajati','produse','materii-prime','admin']),
+('00000000-0000-0000-0000-000000000001', 'Administratori', 'Acces complet la toate modulele aplicației, inclusiv administrare', ARRAY['dashboard','comenzi','facturi','clienti','angajati','produse','materii-prime','cnas','admin']),
 ('00000000-0000-0000-0000-000000000002', 'Management', 'Acces la comenzi, facturi, clienți, angajați și rapoarte', ARRAY['dashboard','comenzi','facturi','clienti','angajati']),
 ('00000000-0000-0000-0000-000000000003', 'Producție', 'Acces la produse, materii prime și comenzi', ARRAY['dashboard','comenzi','produse','materii-prime']),
 ('00000000-0000-0000-0000-000000000004', 'Vânzări', 'Acces la comenzi, facturi și clienți', ARRAY['dashboard','comenzi','facturi','clienti'])

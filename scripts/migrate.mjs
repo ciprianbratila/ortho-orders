@@ -56,7 +56,6 @@ if (!databaseUrl) {
     process.exit(1)
 }
 
-// Fișierele SQL în ordinea de execuție
 const SQL_FILES = [
     'schema.sql',
     'functions.sql',
@@ -66,6 +65,7 @@ const SQL_FILES = [
     '005_valoare_stoc.sql',
     '006_adaos_comercial.sql',
     '007_pret_final.sql',
+    '008_cnas_module.sql',
 ]
 
 async function runMigrations() {

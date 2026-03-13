@@ -12,6 +12,7 @@ import { useComenziStore } from './stores/comenzi'
 import { useFacturiStore } from './stores/facturi'
 import { useAuthStore } from './stores/auth'
 import { useUiStore } from './stores/ui'
+import { useCNASStore } from './stores/cnas'
 
 const route = useRoute()
 const uiStore = useUiStore()
@@ -30,6 +31,9 @@ onMounted(async () => {
       useProduseStore().fetchAll(),
       useComenziStore().fetchAll(),
       useFacturiStore().fetchAll(),
+      useCNASStore().fetchProduse(),
+      useCNASStore().fetchSetari(),
+      useCNASStore().fetchComenzi(),
     ])
   }
 })

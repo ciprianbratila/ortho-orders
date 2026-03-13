@@ -31,6 +31,7 @@ const allNavItems = [
   { to: '/angajati', label: 'Angajați', icon: 'badge', module: 'angajati' as ModulAcces },
   { to: '/produse', label: 'Produse', icon: 'category', module: 'produse' as ModulAcces },
   { to: '/materii-prime', label: 'Materii Prime', icon: 'inventory_2', module: 'materii-prime' as ModulAcces },
+  { to: '/cnas', label: 'CNAS', icon: 'health_and_safety', module: 'cnas' as ModulAcces },
 ]
 
 const navItems = computed(() =>

@@ -52,6 +52,12 @@ const router = createRouter({
             meta: { title: 'Facturi', icon: 'receipt_long', module: 'facturi' }
         },
         {
+            path: '/cnas',
+            name: 'cnas',
+            component: () => import('../pages/CNASPage.vue'),
+            meta: { title: 'CNAS', icon: 'health_and_safety', module: 'cnas' }
+        },
+        {
             path: '/admin',
             name: 'admin',
             component: () => import('../pages/AdminPage.vue'),
